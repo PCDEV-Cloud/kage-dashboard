@@ -110,4 +110,26 @@ export interface Strings {
   nobodyHome: string;
   showRooms: string;
   backToOverview: string;
+
+  // Edytor rzutu
+  editPlan: string;
+  editorHint: string;
+  notPlaced: string;
+  place: string;
+  shapeRect: string;
+  shapeL: string;
+  removeCorner: string;
+  removeFromPlan: string;
+  voids: string;
+  addVoid: string;
+  voidN: string; // {n}
+  remove: string;
+  gridSize: string;
+  sideLabel: string;
+  side: { right: string; left: string; front: string; back: string };
+  roof: string;
+  resetAuto: string;
+  save: string;
+  saving: string;
+  saveFailed: string; // {e}
 }

@@ -20,6 +20,7 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 - Strategia dashboardu zwraca tylko listę widoków; zawartość widoku buduje strategia widoku przy jego otwarciu.
 - `src/engine/model.ts` buduje model domu z `hass.floors/areas/devices/entities` (fallback: `config/floor_registry/list`). Piętra z tym samym `level` tworzą jeden poziom (parter + ogród obok siebie). Pomijamy encje ukryte i z `entity_category`. Encja trafia do obszaru wprost albo przez urządzenie.
 - `src/i18n/` teksty interfejsu: pl, en, zh-Hans (niezweryfikowany). Język z profilu HA, fallback en. Odmiana przez `Intl.PluralRules`. Nazw z HA nie tłumaczymy.
+- Rzut: `src/engine/plan.ts` (wielokąty w jednostkach siatki, puste obszary, strona strefy z tego samego poziomu, poddasze), zapis w `strategy.plan` przez WS `lovelace/config/save` (`src/engine/persist.ts`); edytor `src/cards/plan-editor.ts` tylko dla administratora w układzie szerokim. Brak wpisu piętra = układ automatyczny.
 - Build: Vite, jeden plik ES module `dist/kage.js`. Lit jest zależnością na etap 4 (własne karty).
 
 ## Decyzje produktowe (nie zmieniać bez właściciela)
@@ -46,4 +47,4 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 
 ## Etapy
 
-0–1 zakończone (discovery, design). Etap 2 (szkielet) zakończony; v0.2 = ekran „W domu” na telefonie (karta `kage-home-card`, widok Porządki tylko dla admina); v0.3 = „Poza domem” (`engine/presence.ts`, `engine/issues.ts`, woda użytkowa bez sterowania w `engine/hotwater.ts`; podgląd `?kage=away`); v0.4 = układ szeroki (tablet, laptop) od 900 px: rzut po lewej, pokój albo przegląd po prawej. Następnie v0.5 = edytor rzutu (wyciągnięty z etapu 6) + siatka poziomu 0. Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.
+0–1 zakończone (discovery, design). Etap 2 (szkielet) zakończony; v0.2 = ekran „W domu” na telefonie (karta `kage-home-card`, widok Porządki tylko dla admina); v0.3 = „Poza domem” (`engine/presence.ts`, `engine/issues.ts`, woda użytkowa bez sterowania w `engine/hotwater.ts`; podgląd `?kage=away`); v0.4 = układ szeroki (tablet, laptop) od 900 px: rzut po lewej, pokój albo przegląd po prawej. v0.5 = edytor rzutu (wyciągnięty z etapu 6) + siatka poziomu 0 + linie dachu. Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.

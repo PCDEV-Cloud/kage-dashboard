@@ -196,7 +196,13 @@ export function demoHass(language = "en") {
     entities,
     states,
     calls: [],
-    async callWS() {
+    saved: null,
+    async callWS(msg) {
+      if (msg.type === "lovelace/config") return { strategy: { type: "custom:kage" } };
+      if (msg.type === "lovelace/config/save") {
+        this.saved = msg.config;
+        return null;
+      }
       return Object.values(floors);
     },
     async callService(domain, service, data) {

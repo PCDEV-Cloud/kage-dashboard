@@ -1,4 +1,4 @@
-import { LitElement, css, html, nothing, type TemplateResult } from "lit";
+import { LitElement, css, html, nothing, svg, type TemplateResult } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
 import { format, languageOf, plural, stringsFor, type Strings } from "../i18n";
 import {
@@ -32,16 +32,31 @@ import {
   type IssueAction,
   type SecureStep,
 } from "../engine/issues";
-import { autoLayout } from "../engine/layout";
+import {
+  centroid,
+  resolvePlan,
+  type PlanConfig,
+  type ResolvedPlan,
+  type Side,
+} from "../engine/plan";
 import { contextFor, contextOverride, peopleHome, type Context } from "../engine/presence";
 import { buildHomeModel, type AreaModel, type FloorModel, type HomeModel } from "../engine/model";
 import { findTodos } from "../engine/todos";
 import type { FloorEntry, HomeAssistant } from "../types";
+import { dashboardPath, savePlan } from "../engine/persist";
 import { baseStyles, ensureFonts, neonTokens } from "./styles";
+import "./plan-editor";
 
 // Ekran „W domu” (telefon, motyw Neon): rzut warstwowy, panel pokoju, sceny.
 
 const PLANE_W = 190;
+// Przesunięcie płaszczyzny strefy z tego samego poziomu względem budynku (piksele ekranu).
+const SIDE_OFFSET: Record<Side, [number, number]> = {
+  right: [212, 0],
+  left: [-212, 0],
+  front: [-150, 64],
+  back: [150, -64],
+};
 const PLANE_H = 152;
 const LAYER_H = 113;
 const SECTION_H = 232;
@@ -132,6 +147,19 @@ const ICON = {
     aria-hidden="true"
   >
     <path d="M9 5l7 7-7 7"></path>
+  </svg>`,
+  pencil: html`<svg
+    width="13"
+    height="13"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 20h4L19 9l-4-4L4 16z"></path>
   </svg>`,
   alert: html`<svg
     width="18"
@@ -230,6 +258,9 @@ export class KageHomeCard extends LitElement {
     _holding: { state: true },
     _width: { state: true },
     _height: { state: true },
+    _editing: { state: true },
+    _saving: { state: true },
+    _saveError: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -251,10 +282,23 @@ export class KageHomeCard extends LitElement {
   private _width = 0;
   // Wysokość dostępna dla karty (od jej górnej krawędzi do dołu okna).
   private _height = 0;
+  // Edytor rzutu (administrator, układ szeroki).
+  private _editing = false;
+  private _saving = false;
+  private _saveError = "";
   private _resize?: ResizeObserver;
   private _cache?: { key: unknown[]; model: HomeModel };
 
-  setConfig(): void {}
+  // Rzut zapisany w konfiguracji strategii (`plan:`), przekazany przez strategię widoku.
+  private _plan: PlanConfig | undefined;
+
+  setConfig(config: { plan?: PlanConfig }): void {
+    this._plan = config?.plan;
+  }
+
+  private _resolved(floor: FloorModel): ResolvedPlan {
+    return resolvePlan(this._plan, floor);
+  }
 
   getCardSize(): number {
     return 14;
@@ -444,6 +488,31 @@ export class KageHomeCard extends LitElement {
     const strip =
       floor.areas.length > MAX_TAGS || wide ? this._renderRoomStrip(floor, room) : nothing;
 
+    if (wide && this._editing && this.hass.user?.is_admin) {
+      return html`<div class="screen wide editing">
+        ${this._renderHeader(floor, ctx)}
+        <div class="cols edit" style=${styleMap({ height: `${this._wideBodyHeight()}px` })}>
+          <kage-plan-editor
+            .floors=${floors}
+            .plan=${this._plan}
+            .strings=${t}
+            .floorId=${floor.id}
+            .saving=${this._saving}
+            .error=${this._saveError}
+            @plan-floor=${(e: CustomEvent<string>) => {
+              const f = floors.find((x) => x.id === e.detail);
+              if (f) this._goFloor(f);
+            }}
+            @plan-cancel=${() => {
+              this._editing = false;
+              this._saveError = "";
+            }}
+            @plan-save=${(e: CustomEvent<PlanConfig>) => void this._savePlan(e.detail)}
+          ></kage-plan-editor>
+        </div>
+      </div>`;
+    }
+
     if (wide) {
       // Tablet i laptop: rzut po lewej, po prawej pokój albo przegląd „Poza domem”.
       const side =
@@ -469,6 +538,29 @@ export class KageHomeCard extends LitElement {
         ${this._renderScenes()}
       </div>
     `;
+  }
+
+  private async _savePlan(plan: PlanConfig): Promise<void> {
+    this._saving = true;
+    this._saveError = "";
+    try {
+      await savePlan(this.hass!, dashboardPath(window.location.pathname), plan);
+      this._plan = plan;
+      this._editing = false;
+    } catch (err) {
+      this._saveError = err instanceof Error ? err.message : String(err);
+    } finally {
+      this._saving = false;
+    }
+  }
+
+  // Położenie płaszczyzny piętra `f` w grupie jednego poziomu, względem oglądanej (viewCol).
+  private _sideOffset(group: FloorModel[], f: FloorModel, viewCol: number): [number, number] {
+    const pos = (x: FloorModel): [number, number] =>
+      group.indexOf(x) === 0 ? [0, 0] : SIDE_OFFSET[this._resolved(x).side];
+    const [fx, fy] = pos(f);
+    const [vx, vy] = pos(group[viewCol] ?? group[0]!);
+    return [fx - vx, fy - vy];
   }
 
   // Rzut w układzie szerokim: plany pięter powiększone do szerokości kolumny,
@@ -535,7 +627,14 @@ export class KageHomeCard extends LitElement {
                 <span class="muted">${floor.name.toLocaleUpperCase(this._lang)}</span>`
             : nothing}
         </div>
-        ${alarm}
+        <span class="head-right">
+          ${this._width >= WIDE_MIN && this.hass!.user?.is_admin && !this._editing
+            ? html`<button class="edit-plan cut-s ctl mono" @click=${() => (this._editing = true)}>
+                ${ICON.pencil} ${t.editPlan}
+              </button>`
+            : nothing}
+          ${alarm}
+        </span>
       </header>
     `;
   }
@@ -811,10 +910,13 @@ export class KageHomeCard extends LitElement {
       const planes = group.map((f, j) => {
         const d = j - viewCol;
         const isCur = d === 0;
-        const rects = autoLayout(f.areas.length, PLANE_W / PLANE_H);
+        const plan = this._resolved(f);
+        const planeH = Math.round(Math.min(190, Math.max(100, (PLANE_W * plan.rows) / plan.cols)));
         const glowOn = activeLv && isCur;
         const planeStyle = styleMap({
           "--grid": f.outdoor ? "rgba(61,255,162,.15)" : "rgba(0,229,255,.15)",
+          "--wall": f.outdoor ? "3px" : "12px",
+          height: `${planeH}px`,
           background: f.outdoor ? "rgba(61,255,162,.04)" : "rgba(0,229,255,.035)",
           borderColor: glowOn
             ? f.outdoor
@@ -829,62 +931,82 @@ export class KageHomeCard extends LitElement {
               : "0 0 30px rgba(0,229,255,.28)"
             : "none",
         });
-        const rooms = f.areas.map((a, i) => {
-          const r = rects[i];
+        const pickable = activeLv && isCur;
+        const byId = new Map(f.areas.map((a) => [a.id, a]));
+        const shapes = plan.rooms.map((r) => {
+          const a = byId.get(r.id)!;
           const glow = roomGlow(this.hass!, a);
-          const sel = activeLv && isCur && room?.id === a.id;
+          const sel = pickable && room?.id === a.id;
           const alpha = (0.3 + (0.6 * glow) / 100).toFixed(2);
           const edge = sel
-            ? "var(--kage-accent)"
+            ? "#00e5ff"
             : glow
               ? "rgba(255,190,60,.85)"
               : f.outdoor
                 ? "rgba(61,255,162,.4)"
                 : "rgba(0,229,255,.35)";
-          const style = styleMap({
-            left: `${r.x * PLANE_W + 2}px`,
-            top: `${r.y * PLANE_H + 2}px`,
-            width: `${r.w * PLANE_W - 4}px`,
-            height: `${r.h * PLANE_H - 4}px`,
-            background: glow
-              ? `radial-gradient(circle, rgba(255,205,70,${alpha}), rgba(255,140,0,.25))`
-              : f.outdoor
-                ? "rgba(20,60,40,.55)"
-                : "rgba(10,14,24,.78)",
-            boxShadow: glow ? `0 0 ${Math.round(10 + glow / 4)}px rgba(255,170,0,.6)` : "none",
-            borderColor: edge,
-            "--wall": f.outdoor ? "3px" : "12px",
-          });
-          const pickable = activeLv && isCur;
-          const showTag = pickable && (f.areas.length <= MAX_TAGS || sel);
-          return html`<span
-            class="room ${pickable ? "pick" : ""}"
-            style=${style}
-            @click=${pickable ? () => this._pickRoom(f, a) : nothing}
-          >
-            <span class="wall" style=${styleMap({ borderColor: edge })}></span>
-            ${showTag
-              ? html`<button
-                  class="tag cut-s ${sel ? "sel" : ""}"
-                  aria-pressed=${sel ? "true" : "false"}
-                  @click=${() => this._pickRoom(f, a)}
-                >
-                  ${a.name}
-                </button>`
-              : nothing}
-          </span>`;
+          const fill = glow
+            ? `rgba(255,190,60,${alpha})`
+            : f.outdoor
+              ? "rgba(20,60,40,.55)"
+              : "rgba(10,14,24,.78)";
+          return { r, a, glow, sel, edge, fill, pts: r.points.map((p) => p.join(",")).join(" ") };
         });
+        const vb = `0 0 ${plan.cols} ${plan.rows}`;
+        const base = svg`<svg class="rooms-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
+          ${plan.voids.map(
+            (v) =>
+              svg`<polygon class="void" points=${v.map((p) => p.join(",")).join(" ")}></polygon>`,
+          )}
+          ${shapes.map(
+            (x) => svg`<polygon
+              class="rshape ${pickable ? "pick" : ""} ${x.glow ? "lit" : ""}"
+              points=${x.pts}
+              style=${`fill:${x.fill};stroke:${x.edge}`}
+              @click=${pickable ? () => this._pickRoom(f, x.a) : nothing}
+            ></polygon>`,
+          )}
+        </svg>`;
+        const walls = svg`<svg class="walls-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
+          ${shapes.map((x) => svg`<polygon points=${x.pts} style=${`stroke:${x.edge}`}></polygon>`)}
+        </svg>`;
+        const tags = shapes
+          .filter((x) => pickable && (f.areas.length <= MAX_TAGS || x.sel))
+          .map((x) => {
+            const [cx, cy] = centroid(x.r.points);
+            return html`<button
+              class="tag cut-s ${x.sel ? "sel" : ""}"
+              style=${styleMap({
+                left: `${(cx / plan.cols) * 100}%`,
+                top: `${(cy / plan.rows) * 100}%`,
+              })}
+              aria-pressed=${x.sel ? "true" : "false"}
+              @click=${() => this._pickRoom(f, x.a)}
+            >
+              ${x.a.name}
+            </button>`;
+          });
+        const roof = plan.roof
+          ? html`<span class="roof" aria-hidden="true"
+              ><span class="slope a"></span><span class="slope b"></span
+            ></span>`
+          : nothing;
+        const [ox, oy] = this._sideOffset(group, f, viewCol);
         return html`<span
           class="slide"
           style=${styleMap({
-            transform: `translateX(${d * 212}px) scale(${isCur ? 1 : 0.8})`,
+            transform: `translate(${ox}px, ${oy}px) scale(${isCur ? 1 : 0.8})`,
             opacity: isCur ? "1" : "0.5",
             filter: isCur ? "none" : "blur(2px)",
           })}
         >
-          <span class="plane" style=${planeStyle}>${rooms}</span>
+          <span class="plane" style=${planeStyle}>${base} ${walls} ${tags} ${roof}</span>
         </span>`;
       });
+
+      // Poziom 0: słaba siatka gruntu wokół rzutu, żeby było widać, że to parter.
+      const ground =
+        lv.level === 0 ? html`<span class="ground" aria-hidden="true"></span>` : nothing;
 
       return html`<div
         class="layer"
@@ -900,7 +1022,7 @@ export class KageHomeCard extends LitElement {
             opacity: activeLv ? "1" : "0.7",
             transform: `scale(${activeLv ? 1 : 0.93})`,
           })}
-          >${planes}</span
+          >${ground}${planes}</span
         >
       </div>`;
     });
@@ -928,14 +1050,14 @@ export class KageHomeCard extends LitElement {
     let side: TemplateResult | typeof nothing = nothing;
     if (activeGroup.length > 1) {
       const next = activeGroup[(viewCol + 1) % activeGroup.length];
-      const nextIdx = activeGroup.indexOf(next);
+      const dx = this._sideOffset(activeGroup, next, viewCol)[0];
       side = html`<button
         class="side cut-s ctl mono"
         aria-label=${format(t.moveTo, { x: next.name })}
         @click=${() => this._goFloor(next)}
       >
-        ${nextIdx < viewCol ? ICON.left : nothing} ${next.name.toLocaleUpperCase(this._lang)}
-        ${nextIdx > viewCol ? html`<span class="nudge">${ICON.right}</span>` : nothing}
+        ${dx < 0 ? ICON.left : nothing} ${next.name.toLocaleUpperCase(this._lang)}
+        ${dx >= 0 ? html`<span class="nudge">${ICON.right}</span>` : nothing}
       </button>`;
     }
 
@@ -2636,6 +2758,123 @@ export class KageHomeCard extends LitElement {
       }
       .wide .col-side .tiles {
         gap: 10px;
+      }
+
+      /* --- Rzut z wielokątów --- */
+      .rooms-svg,
+      .walls-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+      }
+      .rooms-svg polygon,
+      .walls-svg polygon {
+        vector-effect: non-scaling-stroke;
+        stroke-width: 1.2px;
+        stroke-linejoin: miter;
+      }
+      .rshape {
+        transition:
+          fill 0.5s ease,
+          stroke 0.35s ease;
+      }
+      .rshape.pick {
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .rshape.lit {
+        filter: drop-shadow(0 0 4px rgba(255, 170, 0, 0.7));
+      }
+      .void {
+        fill: rgba(0, 229, 255, 0.05);
+        stroke: rgba(0, 229, 255, 0.28);
+        stroke-dasharray: 3 3;
+      }
+      .walls-svg {
+        transform: translateZ(var(--wall));
+        pointer-events: none;
+      }
+      .walls-svg polygon {
+        fill: none;
+      }
+      .plane > .tag {
+        position: absolute;
+      }
+      .roof {
+        position: absolute;
+        inset: 0;
+        transform-style: preserve-3d;
+        pointer-events: none;
+      }
+      .slope {
+        position: absolute;
+        left: 0;
+        right: 0;
+        height: 50%;
+        border: 1px dashed rgba(0, 229, 255, 0.32);
+        background: rgba(0, 229, 255, 0.025);
+      }
+      .slope.a {
+        top: 0;
+        transform-origin: top;
+        transform: rotateX(-38deg);
+      }
+      .slope.b {
+        bottom: 0;
+        transform-origin: bottom;
+        transform: rotateX(38deg);
+      }
+      .ground {
+        position: absolute;
+        left: calc(50% - ${PLANE_W * 1.3 - 40}px);
+        top: ${-20 - PLANE_H * 0.8}px;
+        width: ${PLANE_W * 2.6}px;
+        height: ${PLANE_H * 2.6}px;
+        transform: rotateX(62deg) rotateZ(-42deg);
+        background-image:
+          repeating-linear-gradient(
+            0deg,
+            rgba(0, 229, 255, 0.07) 0px,
+            rgba(0, 229, 255, 0.07) 1px,
+            transparent 1px,
+            transparent 12px
+          ),
+          repeating-linear-gradient(
+            90deg,
+            rgba(0, 229, 255, 0.07) 0px,
+            rgba(0, 229, 255, 0.07) 1px,
+            transparent 1px,
+            transparent 12px
+          );
+        -webkit-mask-image: radial-gradient(closest-side, #000 35%, transparent 100%);
+        mask-image: radial-gradient(closest-side, #000 35%, transparent 100%);
+        pointer-events: none;
+      }
+
+      .head-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .edit-plan {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        height: 32px;
+        padding: 0 12px;
+        border: 1px solid rgba(0, 229, 255, 0.35);
+        background: rgba(0, 229, 255, 0.06);
+        color: var(--kage-accent);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      .cols.edit {
+        display: block;
+        padding: 0 4px;
       }
     `,
   ];

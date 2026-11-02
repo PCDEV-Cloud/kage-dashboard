@@ -108,6 +108,31 @@ await page.setViewportSize({ width: 1440, height: 900 });
 await page.waitForTimeout(900);
 await page.screenshot({ path: `${out}/13-laptop-away.png` });
 
+// Edytor rzutu (administrator, laptop): kształt L, pusty obszar, zapis.
+await click({ css: ".edit-plan" });
+await page.screenshot({ path: `${out}/14-editor.png` });
+const ed = async (sel, text) =>
+  page.evaluate(
+    ({ sel, text }) => {
+      const root = document.querySelector("kage-home-card").shadowRoot;
+      const edEl = root.querySelector("kage-plan-editor").shadowRoot;
+      const el = [...edEl.querySelectorAll(sel)].find((e) => !text || e.textContent.includes(text));
+      el.click();
+    },
+    { sel, text },
+  );
+await ed(".name", "Master Bedroom");
+await page.waitForTimeout(300);
+await ed(".act", "L");
+await ed(".act", "empty area");
+await page.waitForTimeout(300);
+await page.screenshot({ path: `${out}/15-editor-l.png` });
+await ed(".act.primary");
+await page.waitForTimeout(800);
+const saved = await page.evaluate(() => window.__hass.saved);
+await page.screenshot({ path: `${out}/16-after-save.png` });
+console.log(JSON.stringify(saved?.strategy?.plan?.floors?.first?.rooms?.master ?? null));
+
 const calls = await page.evaluate(() => window.__hass.calls);
 await browser.close();
 console.log(JSON.stringify({ errors, calls }, null, 2));

@@ -57,7 +57,10 @@ export async function generateView(config: KageConfig, hass: HomeAssistant): Pro
     const model = buildHomeModel(hass, floors);
     return { type: "sections", max_columns: 4, sections: homeSections(model, hass) };
   }
-  return { type: "panel", cards: [{ type: HOME_CARD_TYPE }] };
+  // Rzut z konfiguracji strategii trafia do karty (edytor rzutu zapisuje go w `plan:`).
+  const card: LovelaceCard = { type: HOME_CARD_TYPE };
+  if (config.plan) card.plan = config.plan;
+  return { type: "panel", cards: [card] };
 }
 
 function areaCard(area: AreaModel): LovelaceCard {
