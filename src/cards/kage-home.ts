@@ -56,6 +56,9 @@ const HOLD_MS = 1100;
 const WIDE_MIN = 900;
 const PHONE_W = 390;
 const MAX_ZOOM = 1.6;
+const HEAD_H = 64; // nagłówek KAGE w układzie szerokim
+const STRIP_H = 60; // pasek pokoi pod rzutem
+const MIN_WIDE_BODY = 520;
 
 const ICON = {
   bulb: html`<svg
@@ -226,6 +229,7 @@ export class KageHomeCard extends LitElement {
     _secureDone: { state: true },
     _holding: { state: true },
     _width: { state: true },
+    _height: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -245,6 +249,8 @@ export class KageHomeCard extends LitElement {
   private _holdTimer?: ReturnType<typeof setTimeout>;
   // Szerokość karty: od WIDE_MIN układ dwukolumnowy (tablet, laptop).
   private _width = 0;
+  // Wysokość dostępna dla karty (od jej górnej krawędzi do dołu okna).
+  private _height = 0;
   private _resize?: ResizeObserver;
   private _cache?: { key: unknown[]; model: HomeModel };
 
@@ -261,7 +267,9 @@ export class KageHomeCard extends LitElement {
       this._resize = new ResizeObserver((entries) => {
         const w = Math.round(entries[0]?.contentRect.width ?? 0);
         if (Math.abs(w - this._width) > 8) this._width = w;
+        this._measureHeight();
       });
+      window.addEventListener("resize", this._onWindowResize);
       this._resize.observe(this);
     }
   }
@@ -283,6 +291,15 @@ export class KageHomeCard extends LitElement {
   disconnectedCallback(): void {
     super.disconnectedCallback();
     this._resize?.disconnect();
+    window.removeEventListener("resize", this._onWindowResize);
+  }
+
+  private _onWindowResize = () => this._measureHeight();
+
+  private _measureHeight(): void {
+    const top = Math.max(0, this.getBoundingClientRect().top + window.scrollY);
+    const h = Math.round(window.innerHeight - top);
+    if (Math.abs(h - this._height) > 8) this._height = h;
   }
 
   // --- dane ---
@@ -437,7 +454,7 @@ export class KageHomeCard extends LitElement {
       return html`<div class="screen wide ${ctx}">
         <div class="scan" aria-hidden="true"></div>
         ${this._renderHeader(floor, ctx)}
-        <div class="cols">
+        <div class="cols" style=${styleMap({ height: `${this._wideBodyHeight()}px` })}>
           <div class="col-plan">${this._zoomedPlan(model, floor, room)} ${strip}</div>
           <aside class="col-side">${side}</aside>
         </div>
@@ -454,18 +471,27 @@ export class KageHomeCard extends LitElement {
     `;
   }
 
-  // Rzut z telefonu powiększony do szerokości kolumny (geometria rzutu jest stała).
+  // Rzut w układzie szerokim: plany pięter powiększone do szerokości kolumny,
+  // a warstwy rozsunięte tak, żeby rzut zajął całą wysokość ekranu (jak w makiecie tabletu).
   private _zoomedPlan(model: HomeModel, floor: FloorModel, room: AreaModel | null): TemplateResult {
-    const col = Math.max(PHONE_W, (this._width - 72) * 0.58);
+    const col = Math.max(PHONE_W, (this._width - 40) * 0.58);
     const k = Math.min(MAX_ZOOM, col / PHONE_W);
-    return html`<div class="plan-zoom" style=${styleMap({ height: `${SECTION_H * k + 8}px` })}>
+    const avail = this._wideBodyHeight() - STRIP_H;
+    const sectionH = Math.max(SECTION_H, avail / k);
+    return html`<div class="plan-zoom" style=${styleMap({ height: `${sectionH * k}px` })}>
       <div
         class="plan-inner"
         style=${styleMap({ width: `${col / k}px`, transform: `scale(${k})` })}
       >
-        ${this._renderPlan(model, floor, room)}
+        ${this._renderPlan(model, floor, room, sectionH)}
       </div>
     </div>`;
+  }
+
+  // Wysokość obszaru pod nagłówkiem w układzie szerokim (minimum jak na niskim laptopie).
+  private _wideBodyHeight(): number {
+    const h = this._height || (typeof window !== "undefined" ? window.innerHeight : 800);
+    return Math.max(MIN_WIDE_BODY, h - HEAD_H - 24);
   }
 
   private _context(): Context {
@@ -753,7 +779,12 @@ export class KageHomeCard extends LitElement {
     `;
   }
 
-  private _renderPlan(model: HomeModel, floor: FloorModel, room: AreaModel | null): TemplateResult {
+  private _renderPlan(
+    model: HomeModel,
+    floor: FloorModel,
+    room: AreaModel | null,
+    sectionH = SECTION_H,
+  ): TemplateResult {
     const t = this._t;
     const levels = model.levels;
     const activeLevel = floor.level;
@@ -765,8 +796,14 @@ export class KageHomeCard extends LitElement {
       const touches = levels[k - 1].level === activeLevel || levels[k].level === activeLevel;
       tops.push(tops[k - 1] + (touches ? 78 : 34));
     }
-    const offset = Math.round((SECTION_H - (tops[tops.length - 1] + LAYER_H)) / 2);
-    const railStep = Math.min(74, (SECTION_H - 12) / levels.length);
+    // Wyższy rzut (tablet): warstwy rozsuwamy proporcjonalnie, maks. 2,6 raza.
+    const last = tops[tops.length - 1];
+    if (sectionH > SECTION_H && last > 0) {
+      const f = Math.min(2.6, (sectionH - LAYER_H - 40) / last);
+      if (f > 1) for (let k = 0; k < tops.length; k += 1) tops[k] = Math.round(tops[k] * f);
+    }
+    const offset = Math.round((sectionH - (tops[tops.length - 1] + LAYER_H)) / 2);
+    const railStep = Math.min(74, (sectionH - 12) / levels.length);
 
     const layers = levels.map((lv, k) => {
       const group = lv.floors;
@@ -873,7 +910,7 @@ export class KageHomeCard extends LitElement {
       const activeLv = lv.level === activeLevel;
       const cur = activeLv ? floor : (group[viewCol] ?? group[0]);
       const lit = cur.areas.filter((a) => roomGlow(this.hass!, a) > 0).length;
-      const top = SECTION_H - 6 - (levels.length - k) * railStep + 12;
+      const top = sectionH - 6 - (levels.length - k) * railStep + 12;
       return html`<button
         class="floor-card cut-s ctl ${activeLv ? "active" : ""} ${cur.outdoor ? "outdoor" : ""}"
         style=${styleMap({ top: `${top}px` })}
@@ -902,7 +939,7 @@ export class KageHomeCard extends LitElement {
       </button>`;
     }
 
-    return html`<section class="plan" style=${styleMap({ height: `${SECTION_H}px` })}>
+    return html`<section class="plan" style=${styleMap({ height: `${sectionH}px` })}>
       ${layers} ${rail} ${side}
     </section>`;
   }
@@ -2560,7 +2597,7 @@ export class KageHomeCard extends LitElement {
         display: grid;
         grid-template-columns: minmax(0, 58fr) minmax(340px, 42fr);
         gap: 8px;
-        align-items: start;
+        align-items: stretch;
         margin-top: 8px;
       }
       .col-plan {
@@ -2575,7 +2612,27 @@ export class KageHomeCard extends LitElement {
       }
       .col-side {
         min-width: 0;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
         padding-top: 4px;
+        overflow-y: auto;
+        scrollbar-width: thin;
+      }
+      .col-side > .panel {
+        flex: 1 0 auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .col-side > .scenes {
+        flex: none;
+        margin-bottom: 4px;
+      }
+      .col-side > .issues {
+        flex: 0 1 auto;
+      }
+      .cols {
+        overflow: hidden;
       }
       .wide .col-side .tiles {
         gap: 10px;
