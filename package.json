@@ -4,6 +4,7 @@
   "description": "KAGE — kontekstowy dashboard Home Assistant generowany automatycznie z rejestrów.",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "build": "vite build",
     "dev": "vite build --watch",

@@ -39,3 +39,7 @@ Test w przeglądarce (wymaga Playwright): `npm run build && node dev/smoke.mjs`.
 Szybki test na własnym HA bez wydania: skopiuj `dist/kage.js` do `/config/www/kage.js` i dodaj zasób `/local/kage.js` (typ: moduł JavaScript) w Ustawienia → Dashboardy → Zasoby.
 
 Wydanie: podnieś wersję w `package.json`, a potem na GitHubie **Releases → Draft a new release**, tag `vX.Y.Z`, **Publish**. GitHub Actions zbuduje `kage.js` i dołączy go do wydania, które pobiera HACS.
+
+## Licencja
+
+MIT, zobacz [LICENSE](LICENSE).
