@@ -35,6 +35,23 @@ describe("generateView", () => {
   });
 });
 
+describe("unassigned report", () => {
+  it("lists devices to fix by domain and counts system entities separately", async () => {
+    const hass = makeHass("en");
+    hass.states["sensor.bez_obszaru"] = {
+      entity_id: "sensor.bez_obszaru",
+      state: "1",
+      attributes: { friendly_name: "Loose sensor" },
+    };
+    const view = await generateView({ type: "custom:kage" }, hass);
+    const section = view.sections![view.sections!.length - 1];
+    const report = String(section.cards[1].content);
+    expect(report).toContain("`light` 1 · `sensor` 1");
+    expect(report).toContain("`sensor.bez_obszaru` — Loose sensor");
+    expect(report).toContain("3 system entities");
+  });
+});
+
 describe("i18n", () => {
   it("falls back to English for unknown languages", () => {
     expect(languageOf({ language: "fr" })).toBe("en");

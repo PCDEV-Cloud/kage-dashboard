@@ -33,6 +33,11 @@ describe("buildHomeModel", () => {
     expect(model.unassignedEntityIds).toEqual(["light.nieistniejacy_obszar", "sensor.bez_obszaru"]);
   });
 
+  it("keeps system entities out of rooms and out of the unassigned list", () => {
+    expect(model.systemEntityIds).toEqual(["automation.wieczor", "person.pawel", "update.core"]);
+    expect(model.unassignedEntityIds).not.toContain("automation.wieczor");
+  });
+
   it("picks up a new entity without any configuration", () => {
     const h = makeHass();
     h.entities["light.nowa"] = { entity_id: "light.nowa", area_id: "strych" };

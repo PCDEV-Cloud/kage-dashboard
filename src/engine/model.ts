@@ -28,10 +28,47 @@ export interface HomeModel {
   levels: LevelModel[]; // od najwyższego do najniższego
   floors: FloorModel[];
   unassignedAreas: AreaModel[]; // obszary bez piętra
-  unassignedEntityIds: string[]; // encje bez obszaru
+  unassignedEntityIds: string[]; // urządzenia bez obszaru (do uporządkowania)
+  systemEntityIds: string[]; // encje systemowe: nie należą do pokoi
 }
 
 export const UNASSIGNED_FLOOR_ID = "__kage_unassigned__";
+
+// Domeny, które nie są urządzeniami w pokoju. Nie trafiają do obszarów ani do listy
+// „bez obszaru”; część z nich (sceny, osoby) wykorzystają kolejne etapy.
+export const SYSTEM_DOMAINS = new Set([
+  "automation",
+  "script",
+  "scene",
+  "zone",
+  "sun",
+  "person",
+  "device_tracker",
+  "update",
+  "tts",
+  "stt",
+  "conversation",
+  "wake_word",
+  "ai_task",
+  "todo",
+  "calendar",
+  "weather",
+  "notify",
+  "event",
+  "image",
+  "backup",
+  "input_boolean",
+  "input_button",
+  "input_datetime",
+  "input_number",
+  "input_select",
+  "input_text",
+  "counter",
+  "timer",
+  "schedule",
+]);
+
+export const domainOf = (entityId: string): string => entityId.split(".", 1)[0];
 
 // Encje, których domownik nie powinien widzieć: ukryte, diagnostyczne, konfiguracyjne.
 export function isUserFacing(entity: EntityEntry): boolean {
@@ -63,9 +100,14 @@ export async function loadFloors(hass: HomeAssistant): Promise<FloorEntry[]> {
 export function buildHomeModel(hass: HomeAssistant, floorEntries: FloorEntry[]): HomeModel {
   const areaEntities = new Map<string, string[]>();
   const unassignedEntityIds: string[] = [];
+  const systemEntityIds: string[] = [];
 
   for (const entity of Object.values(hass.entities)) {
     if (!isUserFacing(entity)) continue;
+    if (SYSTEM_DOMAINS.has(domainOf(entity.entity_id))) {
+      systemEntityIds.push(entity.entity_id);
+      continue;
+    }
     const areaId = entityAreaId(hass, entity);
     if (!areaId || !hass.areas[areaId]) {
       unassignedEntityIds.push(entity.entity_id);
@@ -110,5 +152,11 @@ export function buildHomeModel(hass: HomeAssistant, floorEntries: FloorEntry[]):
     .sort(([a], [b]) => b - a)
     .map(([level, list]) => ({ level, floors: list }));
 
-  return { levels, floors, unassignedAreas, unassignedEntityIds: unassignedEntityIds.sort() };
+  return {
+    levels,
+    floors,
+    unassignedAreas,
+    unassignedEntityIds: unassignedEntityIds.sort(),
+    systemEntityIds: systemEntityIds.sort(),
+  };
 }

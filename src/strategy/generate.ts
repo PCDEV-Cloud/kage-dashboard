@@ -1,5 +1,11 @@
 import { format, languageOf, plural, stringsFor } from "../i18n";
-import { buildHomeModel, loadFloors, type AreaModel, type HomeModel } from "../engine/model";
+import {
+  buildHomeModel,
+  domainOf,
+  loadFloors,
+  type AreaModel,
+  type HomeModel,
+} from "../engine/model";
 import type {
   HomeAssistant,
   KageConfig,
@@ -96,19 +102,48 @@ export function homeSections(model: HomeModel, hass: HomeAssistant): LovelaceSec
   if (model.unassignedAreas.length) {
     addGroup(t.unassignedFloor, "mdi:help-box-outline", model.unassignedAreas);
   }
-  if (model.unassignedEntityIds.length) {
+  if (model.unassignedEntityIds.length || model.systemEntityIds.length) {
     sections.push({
       type: "grid",
+      column_span: 2,
       cards: [
         { type: "heading", heading: t.unassignedEntities, icon: "mdi:link-variant-off" },
-        {
-          type: "markdown",
-          content: format("{count}", {
-            count: plural(lang, model.unassignedEntityIds.length, t.entityCount),
-          }),
-        },
+        { type: "markdown", content: unassignedReport(model, hass, lang, t) },
       ],
     });
   }
   return sections;
+}
+
+const MAX_LISTED = 40;
+
+// Raport do porządkowania rejestrów: podział na typy i lista encji z nazwami.
+export function unassignedReport(
+  model: HomeModel,
+  hass: HomeAssistant,
+  lang: string,
+  t: ReturnType<typeof stringsFor>,
+): string {
+  const ids = model.unassignedEntityIds;
+  const lines: string[] = [];
+  if (ids.length) {
+    lines.push(`**${plural(lang, ids.length, t.entityCount)}** · ${t.unassignedHint}`, "");
+    const byDomain = new Map<string, number>();
+    for (const id of ids) byDomain.set(domainOf(id), (byDomain.get(domainOf(id)) ?? 0) + 1);
+    const domains = [...byDomain.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    lines.push(domains.map(([d, n]) => `\`${d}\` ${n}`).join(" · "), "");
+    for (const id of ids.slice(0, MAX_LISTED)) {
+      const name = hass.states[id]?.attributes?.friendly_name;
+      lines.push(`- \`${id}\`${typeof name === "string" ? ` — ${name}` : ""}`);
+    }
+    if (ids.length > MAX_LISTED) {
+      lines.push("", format(t.moreItems, { n: ids.length - MAX_LISTED }));
+    }
+  } else {
+    lines.push(t.noUnassignedDevices);
+  }
+  if (model.systemEntityIds.length) {
+    lines.push("", `_${plural(lang, model.systemEntityIds.length, t.systemEntities)}_`);
+  }
+  return lines.join("\n");
 }

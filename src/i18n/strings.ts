@@ -10,5 +10,9 @@ export interface Strings {
   areaCount: PluralForms;
   entityCount: PluralForms;
   emptyHome: string;
+  unassignedHint: string;
+  noUnassignedDevices: string;
+  moreItems: string;
+  systemEntities: PluralForms;
   skeletonNotice: string;
 }
