@@ -123,6 +123,7 @@ export const pl: Strings = {
   nobodyHome: "Nikogo nie ma w domu",
   showRooms: "Pomieszczenia",
   backToOverview: "Przegląd",
+  resetView: "Przywróć widok",
   editPlan: "Edytuj rzut",
   editorHint:
     "Przeciągnij pokój, aby go przesunąć; przeciągnij narożnik, aby zmienić kształt; plus na krawędzi dodaje narożnik.",

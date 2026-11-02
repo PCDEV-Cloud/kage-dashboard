@@ -110,6 +110,7 @@ export interface Strings {
   nobodyHome: string;
   showRooms: string;
   backToOverview: string;
+  resetView: string;
 
   // Edytor rzutu
   editPlan: string;

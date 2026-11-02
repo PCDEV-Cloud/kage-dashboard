@@ -117,6 +117,7 @@ export const en: Strings = {
   nobodyHome: "Nobody at home",
   showRooms: "Rooms",
   backToOverview: "Overview",
+  resetView: "Reset view",
   editPlan: "Edit floor plan",
   editorHint:
     "Drag a room to move it, drag a corner to reshape it, tap + on an edge to add a corner.",

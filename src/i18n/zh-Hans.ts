@@ -112,6 +112,7 @@ export const zhHans: Strings = {
   nobodyHome: "家中无人",
   showRooms: "房间",
   backToOverview: "概览",
+  resetView: "重置视图",
   editPlan: "编辑平面图",
   editorHint: "拖动房间以移动，拖动角点以改变形状，点击边上的 + 添加角点。",
   notPlaced: "未放置",

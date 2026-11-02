@@ -149,6 +149,20 @@ const ICON = {
   >
     <path d="M9 5l7 7-7 7"></path>
   </svg>`,
+  reset: html`<svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M4 12a8 8 0 1 0 2.5-5.8"></path>
+    <path d="M4 4v4h4"></path>
+  </svg>`,
   pencil: html`<svg
     width="13"
     height="13"
@@ -338,6 +352,9 @@ function roofFaces(w: number, h: number, roof: Roof): RoofFace[] {
   return faces;
 }
 
+const clampZoom = (z: number) => Math.min(2.5, Math.max(0.6, z));
+const normRot = (r: number) => ((((r + 180) % 360) + 360) % 360) - 180;
+
 export class KageHomeCard extends LitElement {
   static properties = {
     hass: { attribute: false },
@@ -355,6 +372,8 @@ export class KageHomeCard extends LitElement {
     _width: { state: true },
     _height: { state: true },
     _editing: { state: true },
+    _zoom: { state: true },
+    _rot: { state: true },
     _saving: { state: true },
     _saveError: { state: true },
   };
@@ -380,6 +399,11 @@ export class KageHomeCard extends LitElement {
   private _height = 0;
   // Edytor rzutu (administrator, układ szeroki).
   private _editing = false;
+  // Widok rzutu: przybliżenie i obrót (gesty); tylko na czas sesji.
+  private _zoom = 1;
+  private _rot = 0;
+  private _liveZoom = 1;
+  private _liveRot = 0;
   private _saving = false;
   private _saveError = "";
   private _resize?: ResizeObserver;
@@ -648,6 +672,65 @@ export class KageHomeCard extends LitElement {
     } finally {
       this._saving = false;
     }
+  }
+
+  // --- gesty na rzucie: dwa palce przybliżają i obracają, Ctrl + kółko przybliża,
+  // Shift + kółko obraca. Jeden palec przewija stronę jak zwykle. ---
+
+  private _pointers = new Map<number, { x: number; y: number }>();
+  private _pinch: { d: number; a: number; z: number; r: number } | null = null;
+
+  private _pinchState(): { d: number; a: number } {
+    const [p, q] = [...this._pointers.values()];
+    return {
+      d: Math.hypot(q!.x - p!.x, q!.y - p!.y) || 1,
+      a: (Math.atan2(q!.y - p!.y, q!.x - p!.x) * 180) / Math.PI,
+    };
+  }
+
+  private _applyView(zoom: number, rot: number, el: HTMLElement): void {
+    el.style.setProperty("--zoom", String(zoom));
+    el.style.setProperty("--rot", `${rot}deg`);
+  }
+
+  private _gestureDown(e: PointerEvent): void {
+    if (e.pointerType === "mouse") return;
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (this._pointers.size === 2) {
+      const g = this._pinchState();
+      this._pinch = { ...g, z: this._zoom, r: this._rot };
+    }
+  }
+
+  private _gestureMove(e: PointerEvent): void {
+    if (!this._pointers.has(e.pointerId)) return;
+    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (!this._pinch || this._pointers.size < 2) return;
+    const g = this._pinchState();
+    this._liveZoom = clampZoom((this._pinch.z * g.d) / this._pinch.d);
+    this._liveRot = normRot(this._pinch.r + (g.a - this._pinch.a));
+    this._applyView(this._liveZoom, this._liveRot, e.currentTarget as HTMLElement);
+  }
+
+  private _gestureUp(e: PointerEvent): void {
+    this._pointers.delete(e.pointerId);
+    if (this._pinch && this._pointers.size < 2) {
+      this._pinch = null;
+      this._zoom = this._liveZoom;
+      this._rot = this._liveRot;
+    }
+  }
+
+  private _wheel(e: WheelEvent): void {
+    if (e.ctrlKey) {
+      e.preventDefault();
+      this._zoom = clampZoom(this._zoom * Math.exp(-e.deltaY * 0.01));
+    } else if (e.shiftKey) {
+      e.preventDefault();
+      this._rot = normRot(this._rot + (e.deltaY || e.deltaX) * 0.25);
+    }
+    this._liveZoom = this._zoom;
+    this._liveRot = this._rot;
   }
 
   // Położenie płaszczyzny piętra `f` w grupie jednego poziomu, względem oglądanej (viewCol).
@@ -1049,7 +1132,27 @@ export class KageHomeCard extends LitElement {
           return { r, a, glow, sel, edge, fill, pts: r.points.map((p) => p.join(",")).join(" ") };
         });
         const vb = `0 0 ${plan.cols} ${plan.rows}`;
+        // Poświata zapalonych pokoi: rozmyta kopia wielokąta pod podłogą (jak wcześniej
+        // radialny gradient z cieniem przy prostokątach).
+        const lit = shapes.filter((x) => x.glow > 0);
+        const glowLayer = lit.length
+          ? svg`<svg class="glow-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
+              ${lit.map(
+                (x) => svg`<polygon
+                  points=${x.pts}
+                  style=${`fill:rgba(255,${150 + Math.round(x.glow * 0.5)},40,${(0.35 + x.glow / 200).toFixed(2)})`}
+                ></polygon>`,
+              )}
+            </svg>`
+          : nothing;
+        const gid = `lit-${f.id}`;
         const base = svg`<svg class="rooms-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
+          <defs>
+            <radialGradient id=${gid} cx="50%" cy="50%" r="65%">
+              <stop offset="0%" stop-color="rgb(255,215,90)"></stop>
+              <stop offset="100%" stop-color="rgb(255,140,0)" stop-opacity="0.35"></stop>
+            </radialGradient>
+          </defs>
           ${plan.voids.map(
             (v) =>
               svg`<polygon class="void" points=${v.map((p) => p.join(",")).join(" ")}></polygon>`,
@@ -1058,7 +1161,11 @@ export class KageHomeCard extends LitElement {
             (x) => svg`<polygon
               class="rshape ${pickable ? "pick" : ""} ${x.glow ? "lit" : ""}"
               points=${x.pts}
-              style=${`fill:${x.fill};stroke:${x.edge}`}
+              style=${
+                x.glow
+                  ? `fill:url(#${gid});fill-opacity:${(0.45 + x.glow / 200).toFixed(2)};stroke:${x.edge}`
+                  : `fill:${x.fill};stroke:${x.edge}`
+              }
               @click=${pickable ? () => this._pickRoom(f, x.a) : nothing}
             ></polygon>`,
           )}
@@ -1101,7 +1208,9 @@ export class KageHomeCard extends LitElement {
             filter: isCur ? "none" : "blur(2px)",
           })}
         >
-          <span class="plane" style=${planeStyle}>${base} ${walls} ${tags} ${roof}</span>
+          <span class="plane" style=${planeStyle}
+            >${glowLayer} ${base} ${walls} ${tags} ${roof}</span
+          >
         </span>`;
       });
 
@@ -1162,8 +1271,34 @@ export class KageHomeCard extends LitElement {
       </button>`;
     }
 
-    return html`<section class="plan" style=${styleMap({ height: `${sectionH}px` })}>
-      ${layers} ${rail} ${side}
+    const changed = this._zoom !== 1 || this._rot !== 0;
+    return html`<section
+      class="plan"
+      style=${styleMap({
+        height: `${sectionH}px`,
+        "--zoom": String(this._zoom),
+        "--rot": `${this._rot}deg`,
+      })}
+      @pointerdown=${(e: PointerEvent) => this._gestureDown(e)}
+      @pointermove=${(e: PointerEvent) => this._gestureMove(e)}
+      @pointerup=${(e: PointerEvent) => this._gestureUp(e)}
+      @pointercancel=${(e: PointerEvent) => this._gestureUp(e)}
+      @wheel=${(e: WheelEvent) => this._wheel(e)}
+    >
+      <div class="view3d">${layers}</div>
+      ${rail} ${side}
+      ${changed
+        ? html`<button
+            class="view-reset cut-s ctl mono"
+            aria-label=${t.resetView}
+            @click=${() => {
+              this._zoom = 1;
+              this._rot = 0;
+            }}
+          >
+            ${ICON.reset}
+          </button>`
+        : nothing}
     </section>`;
   }
 
@@ -1895,7 +2030,7 @@ export class KageHomeCard extends LitElement {
         height: ${PLANE_H}px;
         display: block;
         transform-style: preserve-3d;
-        transform: rotateX(62deg) rotateZ(-42deg);
+        transform: rotateX(62deg) rotateZ(calc(-42deg + var(--rot, 0deg)));
         border: 1px solid;
         background-image:
           repeating-linear-gradient(
@@ -1973,7 +2108,8 @@ export class KageHomeCard extends LitElement {
         position: absolute;
         left: 50%;
         top: 50%;
-        transform: translate(-50%, -50%) translateZ(24px) rotateZ(42deg) rotateX(-62deg);
+        transform: translate(-50%, -50%) translateZ(24px) rotateZ(calc(42deg - var(--rot, 0deg)))
+          rotateX(-62deg);
         padding: 4px 8px;
         white-space: nowrap;
         background: rgba(6, 8, 14, 0.86);
@@ -2885,8 +3021,14 @@ export class KageHomeCard extends LitElement {
         pointer-events: auto;
         cursor: pointer;
       }
-      .rshape.lit {
-        filter: drop-shadow(0 0 4px rgba(255, 170, 0, 0.7));
+      .glow-svg {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        overflow: visible;
+        filter: blur(9px);
+        pointer-events: none;
       }
       .void {
         fill: rgba(0, 229, 255, 0.05);
@@ -2929,7 +3071,7 @@ export class KageHomeCard extends LitElement {
         top: ${-20 - PLANE_H * 0.8}px;
         width: ${PLANE_W * 2.6}px;
         height: ${PLANE_H * 2.6}px;
-        transform: rotateX(62deg) rotateZ(-42deg);
+        transform: rotateX(62deg) rotateZ(calc(-42deg + var(--rot, 0deg)));
         background-image:
           repeating-linear-gradient(
             0deg,
@@ -2972,6 +3114,34 @@ export class KageHomeCard extends LitElement {
       .cols.edit {
         display: block;
         padding: 0 4px;
+      }
+
+      /* --- gesty na rzucie --- */
+      .plan {
+        touch-action: pan-y;
+        overflow: hidden;
+      }
+      .view3d {
+        position: absolute;
+        inset: 0;
+        transform: scale(var(--zoom, 1));
+        transform-origin: 58% 45%;
+        transition: transform 0.08s linear;
+      }
+      .view-reset {
+        position: absolute;
+        top: 4px;
+        right: 12px;
+        z-index: 25;
+        width: 36px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(0, 229, 255, 0.35);
+        background: rgba(6, 8, 14, 0.8);
+        color: var(--kage-accent);
+        cursor: pointer;
       }
     `,
   ];
