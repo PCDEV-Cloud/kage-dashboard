@@ -68,6 +68,24 @@ describe("roomControls", () => {
   });
 });
 
+describe("roomClimate", () => {
+  it("ignores hot water temperature and prefers an air sensor", () => {
+    const hass = makeHass("pl");
+    const add = (id: string, state: string, attributes: Record<string, unknown>) => {
+      hass.entities[id] = { entity_id: id, area_id: "sypialnia" };
+      hass.states[id] = { entity_id: id, state, attributes };
+    };
+    add("climate.dhw", "heat", { current_temperature: 47.7, temperature: 50 });
+    const area = () =>
+      buildHomeModel(hass, floors)
+        .floors.find((f) => f.id === "pietro")!
+        .areas.find((a) => a.id === "sypialnia")!;
+    expect(roomClimate(hass, area()).temperature).toBeNull();
+    add("sensor.air", "18.4", { device_class: "temperature" });
+    expect(roomClimate(hass, area()).temperature).toBe(18.4);
+  });
+});
+
 describe("isOutdoorFloor", () => {
   it("recognises outdoor floors by name or icon", () => {
     expect(isOutdoorFloor({ name: "Outdoors" })).toBe(true);

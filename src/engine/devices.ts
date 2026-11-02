@@ -115,29 +115,37 @@ const numberAttr = (s: HassEntityState | undefined, key: string): number | null 
 };
 
 // Temperatura i wilgotność pokoju: z termostatu albo z czujników w obszarze.
+// Temperatura powietrza w pokoju: najpierw czujnik temperatury, potem termostat.
+// Wartości spoza zakresu powietrza (np. ciepła woda użytkowa 47°) pomijamy.
+const AIR_MIN = -10;
+const AIR_MAX = 35;
+const isAir = (v: number | null): v is number => v !== null && v >= AIR_MIN && v <= AIR_MAX;
+
 export function roomClimate(
   hass: HomeAssistant,
   area: AreaModel,
 ): { temperature: number | null; humidity: number | null } {
-  let temperature: number | null = null;
+  let sensorTemp: number | null = null;
+  let climateTemp: number | null = null;
   let humidity: number | null = null;
   for (const id of area.entityIds) {
     const s = hass.states[id];
     if (!s) continue;
     const d = domainOf(id);
-    if (d === "climate" && temperature === null) {
-      temperature = numberAttr(s, "current_temperature");
+    if (d === "climate") {
+      const t = numberAttr(s, "current_temperature");
+      if (climateTemp === null && isAir(t)) climateTemp = t;
       if (humidity === null) humidity = numberAttr(s, "current_humidity");
     }
     if (d === "sensor") {
       const cls = s.attributes.device_class;
       const v = Number(s.state);
       if (!Number.isFinite(v)) continue;
-      if (cls === "temperature" && temperature === null) temperature = v;
+      if (cls === "temperature" && sensorTemp === null && isAir(v)) sensorTemp = v;
       if (cls === "humidity" && humidity === null) humidity = v;
     }
   }
-  return { temperature, humidity };
+  return { temperature: sensorTemp ?? climateTemp, humidity };
 }
 
 // Odtwarzacz do pokazania: grający, a jeśli żaden nie gra, pierwszy.

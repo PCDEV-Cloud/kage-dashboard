@@ -557,6 +557,18 @@ export class KageHomeCard extends LitElement {
     </section>`;
   }
 
+  protected updated(): void {
+    // Wybrany pokój w pasku zawsze widoczny (pasek przewija się w poziomie).
+    const strip = this.renderRoot.querySelector<HTMLElement>(".room-strip");
+    const sel = strip?.querySelector<HTMLElement>(".room-chip.sel");
+    if (!strip || !sel) return;
+    const left = sel.offsetLeft - strip.offsetLeft;
+    const right = left + sel.offsetWidth;
+    if (left < strip.scrollLeft || right > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollTo({ left: Math.max(0, left - 16), behavior: "smooth" });
+    }
+  }
+
   private _renderRoomStrip(floor: FloorModel, room: AreaModel | null): TemplateResult {
     return html`<nav class="room-strip" aria-label=${floor.name}>
       ${floor.areas.map((a) => {
@@ -975,6 +987,13 @@ export class KageHomeCard extends LitElement {
         min-height: calc(100vh - var(--header-height, 56px));
         background-color: var(--kage-ground);
         background-image:
+          repeating-linear-gradient(
+            0deg,
+            rgba(255, 255, 255, 0.028) 0px,
+            rgba(255, 255, 255, 0.028) 1px,
+            transparent 1px,
+            transparent 3px
+          ),
           radial-gradient(420px 320px at 0% 0%, rgba(255, 179, 0, 0.14), transparent 70%),
           radial-gradient(460px 380px at 100% 40%, rgba(0, 229, 255, 0.13), transparent 70%),
           radial-gradient(380px 300px at 20% 100%, rgba(120, 60, 255, 0.18), transparent 70%);
@@ -988,13 +1007,6 @@ export class KageHomeCard extends LitElement {
         padding-bottom: 24px;
         overflow: hidden;
         min-height: inherit;
-        background-image: repeating-linear-gradient(
-          0deg,
-          rgba(255, 255, 255, 0.028) 0px,
-          rgba(255, 255, 255, 0.028) 1px,
-          transparent 1px,
-          transparent 3px
-        );
       }
       .scan {
         position: absolute;
