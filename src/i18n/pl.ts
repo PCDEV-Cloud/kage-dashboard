@@ -42,6 +42,9 @@ export const pl: Strings = {
   lightsSome: "{on} Z {total} WŁ.",
   allLights: "Wszystkie światła",
   brightness: "Jasność",
+  stop: "stop",
+  opening: "otwiera się",
+  closing: "zamyka się",
   position: "pozycja",
   covers: {
     shade: "Rolety",

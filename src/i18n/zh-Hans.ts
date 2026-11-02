@@ -36,6 +36,9 @@ export const zhHans: Strings = {
   lightsSome: "{total} 盏中 {on} 盏开",
   allLights: "全部灯光",
   brightness: "亮度",
+  stop: "停止",
+  opening: "正在打开",
+  closing: "正在关闭",
   position: "位置",
   covers: {
     shade: "卷帘",

@@ -5,6 +5,7 @@ import {
   activeMedia,
   brightnessPct,
   canSetPosition,
+  canStop,
   controlCount,
   hasControls,
   coverPosition,
@@ -65,6 +66,9 @@ const ICON = {
     aria-hidden="true"
   >
     <path d="M6 15l6-6 6 6"></path>
+  </svg>`,
+  stop: html`<svg width="12" height="12" viewBox="0 0 24 24" aria-hidden="true">
+    <rect x="5" y="5" width="14" height="14" fill="currentColor"></rect>
   </svg>`,
   down: html`<svg
     width="14"
@@ -729,46 +733,59 @@ export class KageHomeCard extends LitElement {
     return this._t.covers[g.kind];
   }
 
+  // Stan osłony: w ruchu („otwiera się”), albo pozycja.
+  private _coverState(ids: string[], pos: number): string {
+    const t = this._t;
+    const states = ids.map((id) => this.hass!.states[id]?.state);
+    if (states.includes("opening")) return t.opening;
+    if (states.includes("closing")) return t.closing;
+    return pos === 0 ? t.closed : pos === 100 ? t.open : format(t.openPct, { n: pos });
+  }
+
+  // ▲ ■ ▼ – stop tylko dla osłon, które go obsługują (CoverEntityFeature.STOP).
+  private _coverButtons(target: string | string[], featureIds: string[]): TemplateResult {
+    const t = this._t;
+    const btn = (label: string, service: string, icon: TemplateResult, cls = "") =>
+      html`<button
+        class="sq cut-s ctl ${cls}"
+        aria-label=${label}
+        @click=${() => this._call("cover", service, { entity_id: target })}
+      >
+        ${icon}
+      </button>`;
+    return html`<span class="row cover-btns">
+      ${btn(t.openAll, "open_cover", ICON.up)}
+      ${featureIds.every((id) => canStop(this.hass!, id))
+        ? btn(t.stop, "stop_cover", ICON.stop, "stop")
+        : nothing}
+      ${btn(t.closeAll, "close_cover", ICON.down)}
+    </span>`;
+  }
+
   private _coverTile(area: AreaModel, g: CoverControl): TemplateResult {
     const label = this._coverLabel(area, g);
-    const variant = g.kind === "screen" ? "screen" : "";
-    const t = this._t;
+    const variant = g.kind === "screen" ? "projector" : "";
     const h = this.hass!;
     const ids = g.members;
     const target = g.all ?? ids;
+    const featureIds = g.all ? [g.all] : ids;
     const pos = g.all
       ? coverPosition(h, g.all)
       : Math.round(ids.reduce((s, id) => s + coverPosition(h, id), 0) / ids.length);
-    const state = pos === 0 ? t.closed : pos === 100 ? t.open : format(t.openPct, { n: pos });
     return html`<div class="tile cut-s blind ${variant}">
       <div class="tile-head">
         <span class="tt">
           <span class="name">${label}</span>
-          <span class="st mono">${state}</span>
+          <span class="st mono">${this._coverState(featureIds, pos)}</span>
         </span>
-        <span class="row">
-          <button
-            class="sq cut-s ctl"
-            aria-label=${t.openAll}
-            @click=${() => this._call("cover", "open_cover", { entity_id: target })}
-          >
-            ${ICON.up}
-          </button>
-          <button
-            class="sq cut-s ctl"
-            aria-label=${t.closeAll}
-            @click=${() => this._call("cover", "close_cover", { entity_id: target })}
-          >
-            ${ICON.down}
-          </button>
-        </span>
-      </div>
-      <div class="row bar-row">
-        ${(g.all ? [g.all] : ids).every((id) => canSetPosition(h, id))
-          ? this._positionSlider(target, pos, label)
-          : html`<div class="bar"><i style=${styleMap({ width: `${pos}%` })}></i></div>`}
         ${ids.length > 1 ? this._listButton(`cover:${g.kind}`, ids.length) : nothing}
       </div>
+      <div class="row bar-row">
+        ${featureIds.every((id) => canSetPosition(h, id))
+          ? this._positionSlider(target, pos, label)
+          : html`<div class="bar"><i style=${styleMap({ width: `${pos}%` })}></i></div>`}
+      </div>
+      ${this._coverButtons(target, featureIds)}
     </div>`;
   }
 
@@ -930,26 +947,8 @@ export class KageHomeCard extends LitElement {
           : nothing;
         return html`<div class="lrow cover-row">
           <span class="lname">${this._name(id, area)}</span>
-          <span class="mono small"
-            >${p === 0 ? t.closed : p === 100 ? t.open : format(t.openPct, { n: p })}</span
-          >
-          <span class="row">
-            <button
-              class="sq cut-s ctl"
-              aria-label=${t.openAll}
-              @click=${() => this._call("cover", "open_cover", { entity_id: id })}
-            >
-              ${ICON.up}
-            </button>
-            <button
-              class="sq cut-s ctl"
-              aria-label=${t.closeAll}
-              @click=${() => this._call("cover", "close_cover", { entity_id: id })}
-            >
-              ${ICON.down}
-            </button>
-          </span>
-          ${slider}
+          <span class="mono small">${this._coverState([id], p)}</span>
+          ${this._coverButtons(id, [id])} ${slider}
         </div>`;
       });
     } else if (kind === "climates") {
@@ -1475,11 +1474,11 @@ export class KageHomeCard extends LitElement {
         border-color: rgba(0, 229, 255, 0.3);
         background: rgba(0, 229, 255, 0.05);
       }
-      .tile.blind.screen {
+      .tile.blind.projector {
         border-color: rgba(255, 43, 214, 0.35);
         background: rgba(255, 43, 214, 0.04);
       }
-      .tile.blind.screen .bar i {
+      .tile.blind.projector .bar i {
         background: var(--kage-scene, #ff2bd6);
       }
       .tile.clim {
@@ -1646,9 +1645,30 @@ export class KageHomeCard extends LitElement {
       .slider.cover::-moz-range-thumb {
         border-color: var(--kage-accent);
       }
-      .tile.screen .slider.cover::-webkit-slider-thumb {
+      .tile.projector .slider.cover::-webkit-slider-thumb {
         border-color: var(--kage-scene, #ff2bd6);
         box-shadow: 0 0 10px rgba(255, 43, 214, 0.7);
+      }
+      .tile.blind .cover-btns {
+        gap: 6px;
+        margin-top: 12px;
+      }
+      .tile.blind .cover-btns .sq {
+        flex: 1;
+        width: auto;
+      }
+      .tile.projector .sq {
+        border-color: rgba(255, 43, 214, 0.45);
+        background: rgba(255, 43, 214, 0.08);
+        color: var(--kage-scene, #ff2bd6);
+      }
+      .sq.stop {
+        color: #c9d3df;
+      }
+      .tile.blind .bar-row {
+        margin-top: 12px;
+        min-height: 18px;
+        align-items: center;
       }
       .bar-row .slider {
         flex: 1;

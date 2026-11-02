@@ -216,6 +216,14 @@ export function canSetPosition(hass: HomeAssistant, id: string): boolean {
   return typeof f === "number" && (f & COVER_SET_POSITION) !== 0;
 }
 
+// Czy osłonę można zatrzymać w ruchu (CoverEntityFeature.STOP = 8).
+export const COVER_STOP = 8;
+
+export function canStop(hass: HomeAssistant, id: string): boolean {
+  const f = hass.states[id]?.attributes.supported_features;
+  return typeof f === "number" && (f & COVER_STOP) !== 0;
+}
+
 // Pozycja rolety 0–100 (100 = otwarta).
 export function coverPosition(hass: HomeAssistant, id: string): number {
   const s = hass.states[id];

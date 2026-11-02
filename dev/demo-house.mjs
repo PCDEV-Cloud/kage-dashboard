@@ -88,7 +88,7 @@ export function demoHass(language = "en") {
     friendly_name: "Screen",
     device_class: "shade",
     current_position: 0,
-    supported_features: 3,
+    supported_features: 11,
   });
   add("climate.master", "master", "heat", {
     friendly_name: "Master Bedroom",
