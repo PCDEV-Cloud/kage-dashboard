@@ -2,6 +2,7 @@ import { buildHomeModel, isOutdoorFloor } from "../src/engine/model";
 import {
   brightnessPct,
   coverPosition,
+  groupMembers,
   isProjectorScreen,
   roomClimate,
   roomControls,
@@ -74,6 +75,49 @@ describe("roomControls", () => {
     expect(brightnessPct(hass, "light.all")).toBe(50);
     expect(coverPosition(hass, "cover.screen")).toBe(0);
     expect(c.media).toEqual(["media_player.speaker", "media_player.tv"]);
+  });
+});
+
+describe("light groups", () => {
+  const setup = () => {
+    const hass = makeHass("pl");
+    const add = (id: string, attributes: Record<string, unknown> = {}, extra = {}) => {
+      hass.entities[id] = { entity_id: id, area_id: "sypialnia", ...extra };
+      hass.states[id] = { entity_id: id, state: "on", attributes };
+    };
+    const area = () =>
+      buildHomeModel(hass, floors)
+        .floors.find((f) => f.id === "pietro")!
+        .areas.find((a) => a.id === "sypialnia")!;
+    return { hass, add, area };
+  };
+
+  it("recognises a switch group shown as a light", () => {
+    const { hass, add, area } = setup();
+    // Ukryty przełącznik-grupa i jego odpowiednik „Show as → Light”.
+    add("switch.lights", { entity_id: ["switch.main", "switch.mirror"] }, { hidden: true });
+    add("light.lights", {}, { platform: "switch_as_x" });
+    add("light.main", {}, { platform: "switch_as_x" });
+    add("light.mirror", {}, { platform: "switch_as_x" });
+    expect(groupMembers(hass, "light.lights")).toEqual(["light.main", "light.mirror"]);
+    expect(roomControls(hass, area()).lights).toEqual({
+      all: "light.lights",
+      members: ["light.main", "light.mirror"],
+    });
+  });
+
+  it("prefers a group marked with a label, then the biggest group", () => {
+    const { hass, add, area } = setup();
+    add("light.a");
+    add("light.b");
+    add("light.pair", { entity_id: ["light.a", "light.b"] });
+    add("light.one", { entity_id: ["light.a"] });
+    expect(roomControls(hass, area()).lights?.all).toBe("light.pair");
+    add("light.zigbee_all", {}, { labels: ["grupa"] });
+    expect(roomControls(hass, area()).lights).toEqual({
+      all: "light.zigbee_all",
+      members: ["light.a", "light.b"],
+    });
   });
 });
 

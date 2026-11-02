@@ -77,7 +77,41 @@ export function stateOf(hass: HomeAssistant, id: string): HassEntityState | unde
   return hass.states[id];
 }
 
-const isGroup = (s: HassEntityState | undefined) => Array.isArray(s?.attributes.entity_id);
+// Grupa „wszystkie”. Rozpoznajemy trzy przypadki:
+// 1. grupa z HA (pomocnik Group) – ma atrybut entity_id z listą członków;
+// 2. przełącznik-grupa pokazany jako światło („Show as → Light”, platforma switch_as_x):
+//    nowa encja nie ma listy członków, ma ją ukryty przełącznik o tym samym object_id;
+// 3. grupa urządzeń (np. grupa Zigbee) oznaczona etykietą `grupa`/`group` – członków nie znamy.
+const GROUP_LABELS = new Set(["grupa", "group", "wszystkie", "all"]);
+
+const objectId = (id: string) => id.slice(id.indexOf(".") + 1);
+
+const listAttr = (s: HassEntityState | undefined): string[] | null => {
+  const v = s?.attributes.entity_id;
+  return Array.isArray(v) ? v.filter((m): m is string => typeof m === "string") : null;
+};
+
+// Członkowie grupy (pusta lista = grupa z etykiety) albo null, gdy to nie grupa.
+export function groupMembers(hass: HomeAssistant, id: string): string[] | null {
+  const direct = listAttr(hass.states[id]);
+  if (direct) return direct;
+  const entry = hass.entities[id];
+  if (entry?.platform === "switch_as_x") {
+    const source = listAttr(hass.states[`switch.${objectId(id)}`]);
+    if (source) {
+      // Członkowie to przełączniki; jeśli też są pokazane jako światła, bierzemy światła.
+      const domain = id.slice(0, id.indexOf("."));
+      return source.map((m) => {
+        const as = `${domain}.${objectId(m)}`;
+        return m.startsWith("switch.") && hass.states[as] ? as : m;
+      });
+    }
+  }
+  if (entry?.labels?.some((l) => GROUP_LABELS.has(l.toLowerCase()))) return [];
+  return null;
+}
+
+const isGroupId = (hass: HomeAssistant, id: string) => groupMembers(hass, id) !== null;
 
 const available = (hass: HomeAssistant, id: string) => {
   const s = hass.states[id];
@@ -86,9 +120,18 @@ const available = (hass: HomeAssistant, id: string) => {
 
 function grouped(hass: HomeAssistant, ids: string[]): GroupControl | null {
   if (ids.length === 0) return null;
-  const groups = ids.filter((id) => isGroup(hass.states[id]));
-  const members = ids.filter((id) => !isGroup(hass.states[id]));
-  return { all: groups[0] ?? null, members: members.length ? members : groups.slice(0, 1) };
+  const groups = ids.filter((id) => isGroupId(hass, id));
+  const members = ids.filter((id) => !groups.includes(id));
+  // Kilka grup w pokoju: wygrywa oznaczona etykietą, potem ta z największą liczbą członków.
+  const score = (g: string) => {
+    const m = groupMembers(hass, g)!;
+    return m.length === 0 ? Number.MAX_SAFE_INTEGER : m.length;
+  };
+  const all = groups.reduce<string | null>(
+    (best, g) => (best === null || score(g) > score(best) ? g : best),
+    null,
+  );
+  return { all, members: members.length ? members : all ? [all] : [] };
 }
 
 export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls {
@@ -115,8 +158,8 @@ export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls
 // należą wszystkie jej osłony; grupa mieszana (np. rolety + ekran) zostaje pominięta,
 // żeby „wszystkie” nie ruszały osłon innego rodzaju.
 function coverControls(hass: HomeAssistant, ids: string[]): CoverControl[] {
-  const singles = ids.filter((id) => !isGroup(hass.states[id]));
-  const groups = ids.filter((id) => isGroup(hass.states[id]));
+  const groups = ids.filter((id) => isGroupId(hass, id));
+  const singles = ids.filter((id) => !groups.includes(id));
   const byKind = new Map<CoverKind, CoverControl>();
   for (const id of singles) {
     const kind = coverKindOf(hass, id);
@@ -125,9 +168,7 @@ function coverControls(hass: HomeAssistant, ids: string[]): CoverControl[] {
     byKind.set(kind, c);
   }
   for (const g of groups) {
-    const inside = (hass.states[g]?.attributes.entity_id as unknown[]).filter(
-      (m): m is string => typeof m === "string",
-    );
+    const inside = groupMembers(hass, g) ?? [];
     const kinds = new Set(inside.filter((m) => hass.states[m]).map((m) => coverKindOf(hass, m)));
     const kind: CoverKind | null =
       kinds.size === 1 ? [...kinds][0]! : kinds.size === 0 ? coverKindOf(hass, g) : null;
