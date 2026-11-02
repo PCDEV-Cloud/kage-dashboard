@@ -109,6 +109,19 @@ function visible(hass: HomeAssistant): string[] {
     });
 }
 
+// Alarm, który da się uzbroić z HA bez kodu (AlarmControlPanelEntityFeature.ARM_AWAY = 2).
+// Bez kodów PIN: panel wymagający kodu nie dostaje przycisku.
+export function canArmAway(hass: HomeAssistant, id: string): boolean {
+  const a = hass.states[id]?.attributes;
+  if (!a || a.code_arm_required === true) return false;
+  return typeof a.supported_features !== "number" || (a.supported_features & 2) !== 0;
+}
+
+// Alarm pokazywany w nagłówku: pierwszy widoczny (nieukryty, z rejestru).
+export function visibleAlarm(hass: HomeAssistant): string | null {
+  return visible(hass).find((id) => domainOf(id) === "alarm_control_panel") ?? null;
+}
+
 export function findIssues(hass: HomeAssistant): Issue[] {
   const c = context(hass);
   const ids = visible(hass);
@@ -180,7 +193,8 @@ export function findIssues(hass: HomeAssistant): Issue[] {
 
   group("opening", "warn", binaryOn(OPENING_CLASSES));
 
-  const disarmed = alarms.filter((id) => st(id).state === "disarmed");
+  // Rozbrojony alarm to sprawa tylko wtedy, gdy KAGE umie go uzbroić.
+  const disarmed = alarms.filter((id) => st(id).state === "disarmed" && canArmAway(hass, id));
   group("alarmOff", "warn", disarmed, {
     domain: "alarm_control_panel",
     service: "alarm_arm_away",

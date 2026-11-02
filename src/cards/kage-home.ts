@@ -23,6 +23,7 @@ import { callService } from "../engine/calls";
 import {
   findIssues,
   secureSteps,
+  visibleAlarm,
   worstSeverity,
   type Issue,
   type IssueAction,
@@ -395,9 +396,7 @@ export class KageHomeCard extends LitElement {
 
   private _renderHeader(floor: FloorModel | null, ctx: Context = "home"): TemplateResult {
     const t = this._t;
-    const alarmId = Object.keys(this.hass!.states).find((id) =>
-      id.startsWith("alarm_control_panel."),
-    );
+    const alarmId = visibleAlarm(this.hass!);
     let alarm: TemplateResult | typeof nothing = nothing;
     if (alarmId) {
       const st = this.hass!.states[alarmId].state;

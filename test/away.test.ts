@@ -1,5 +1,11 @@
 import { isHotWater, hotWaterStatus } from "../src/engine/hotwater";
-import { findIssues, secureSteps, worstSeverity } from "../src/engine/issues";
+import {
+  canArmAway,
+  findIssues,
+  secureSteps,
+  visibleAlarm,
+  worstSeverity,
+} from "../src/engine/issues";
 import { contextFor, contextOverride, peopleHome } from "../src/engine/presence";
 import type { HomeAssistant } from "../src/types";
 import { makeHass } from "./fixtures/house";
@@ -122,6 +128,19 @@ describe("findIssues", () => {
       ["valve", true],
       ["gate", true],
     ]);
+  });
+
+  it("skips alarms it cannot arm and hidden alarm panels", () => {
+    const hass = house();
+    hass.add("alarm_control_panel.coded", "disarmed", {
+      supported_features: 3,
+      code_arm_required: true,
+    });
+    hass.add("alarm_control_panel.no_away", "disarmed", { supported_features: 1 });
+    expect(findIssues(hass)).toEqual([]);
+    hass.add("alarm_control_panel.hidden", "disarmed", {}, { hidden: true });
+    expect(visibleAlarm(hass)).toBe("alarm_control_panel.coded");
+    expect(canArmAway(hass, "alarm_control_panel.hidden")).toBe(true);
   });
 
   it("reports nothing in a quiet house", () => {
