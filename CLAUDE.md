@@ -46,4 +46,4 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 
 ## Etapy
 
-0–1 zakończone (discovery, design). Etap 2 (szkielet) zakończony; v0.2 = ekran „W domu” na telefonie (karta `kage-home-card`, widok Porządki tylko dla admina); v0.3 = „Poza domem” (`engine/presence.ts`, `engine/issues.ts`, woda użytkowa bez sterowania w `engine/hotwater.ts`; podgląd `?kage=away`). Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.
+0–1 zakończone (discovery, design). Etap 2 (szkielet) zakończony; v0.2 = ekran „W domu” na telefonie (karta `kage-home-card`, widok Porządki tylko dla admina); v0.3 = „Poza domem” (`engine/presence.ts`, `engine/issues.ts`, woda użytkowa bez sterowania w `engine/hotwater.ts`; podgląd `?kage=away`); v0.4 = układ szeroki (tablet, laptop) od 900 px: rzut po lewej, pokój albo przegląd po prawej. Następnie v0.5 = edytor rzutu (wyciągnięty z etapu 6) + siatka poziomu 0. Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.

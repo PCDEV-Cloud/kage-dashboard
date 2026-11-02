@@ -90,6 +90,24 @@ await page.screenshot({ path: `${out}/8-away-ok.png`, fullPage: true });
 await setStates({ "binary_sensor.utility_leak": "on" });
 await page.screenshot({ path: `${out}/9-leak.png`, fullPage: true });
 
+// Tablet i laptop: ten sam dom w szerokim oknie.
+await setStates({
+  "person.demo": "home",
+  "person.jo": "home",
+  "binary_sensor.utility_leak": "off",
+});
+await page.setViewportSize({ width: 1180, height: 820 });
+await page.waitForTimeout(900);
+await click({ css: ".floor-card", text: "FIRST FLOOR" });
+await page.screenshot({ path: `${out}/10-tablet.png` });
+await click({ css: ".room-chip, .tag", text: "Master Bedroom" });
+await page.screenshot({ path: `${out}/11-tablet-master.png` });
+await setStates({ "person.demo": "not_home" });
+await page.screenshot({ path: `${out}/12-tablet-away.png` });
+await page.setViewportSize({ width: 1440, height: 900 });
+await page.waitForTimeout(900);
+await page.screenshot({ path: `${out}/13-laptop-away.png` });
+
 const calls = await page.evaluate(() => window.__hass.calls);
 await browser.close();
 console.log(JSON.stringify({ errors, calls }, null, 2));

@@ -52,6 +52,11 @@ type Expanded = "lights" | "climates" | "media" | `cover:${CoverKind}` | null;
 // Przytrzymanie dla akcji fizycznych (brama, furtka, zawór wody).
 const HOLD_MS = 1100;
 
+// Układ szeroki (tablet, laptop): od tej szerokości karty dwie kolumny.
+const WIDE_MIN = 900;
+const PHONE_W = 390;
+const MAX_ZOOM = 1.6;
+
 const ICON = {
   bulb: html`<svg
     width="18"
@@ -220,6 +225,7 @@ export class KageHomeCard extends LitElement {
     _secureOff: { state: true },
     _secureDone: { state: true },
     _holding: { state: true },
+    _width: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -237,6 +243,9 @@ export class KageHomeCard extends LitElement {
   private _secureDone = false;
   private _holding: string | null = null;
   private _holdTimer?: ReturnType<typeof setTimeout>;
+  // Szerokość karty: od WIDE_MIN układ dwukolumnowy (tablet, laptop).
+  private _width = 0;
+  private _resize?: ResizeObserver;
   private _cache?: { key: unknown[]; model: HomeModel };
 
   setConfig(): void {}
@@ -248,6 +257,32 @@ export class KageHomeCard extends LitElement {
   connectedCallback(): void {
     super.connectedCallback();
     ensureFonts();
+    if (typeof ResizeObserver !== "undefined") {
+      this._resize = new ResizeObserver((entries) => {
+        const w = Math.round(entries[0]?.contentRect.width ?? 0);
+        if (Math.abs(w - this._width) > 8) this._width = w;
+      });
+      this._resize.observe(this);
+    }
+  }
+
+  // Wyjście z domu zawsze zaczyna od przeglądu, nie od ostatnio oglądanego pokoju.
+  private _lastCtx: Context | null = null;
+  protected willUpdate(): void {
+    if (!this.hass) return;
+    const ctx = this._context();
+    if (ctx !== this._lastCtx) {
+      if (ctx === "away") {
+        this._showRooms = false;
+        this._securing = false;
+      }
+      this._lastCtx = ctx;
+    }
+  }
+
+  disconnectedCallback(): void {
+    super.disconnectedCallback();
+    this._resize?.disconnect();
   }
 
   // --- dane ---
@@ -355,6 +390,7 @@ export class KageHomeCard extends LitElement {
   }
 
   private _pickRoom(floor: FloorModel, area: AreaModel): void {
+    if (this._width >= WIDE_MIN) this._showRooms = true;
     this._floorId = floor.id;
     this._roomId = area.id;
     this._expanded = null;
@@ -374,7 +410,8 @@ export class KageHomeCard extends LitElement {
     }
 
     const ctx = this._context();
-    if (ctx === "away" && !this._showRooms) return this._renderAway();
+    const wide = this._width >= WIDE_MIN;
+    if (ctx === "away" && !this._showRooms && !wide) return this._renderAway();
 
     let floor = floors.find((f) => f.id === this._floorId) ?? null;
     if (!floor) {
@@ -384,20 +421,51 @@ export class KageHomeCard extends LitElement {
     let room = floor.areas.find((a) => a.id === this._roomId) ?? null;
     if (!room) room = this._bestRoom(floor);
 
+    const back = html`<button class="back mono rise" @click=${() => (this._showRooms = false)}>
+      ${ICON.left} ${t.backToOverview}
+    </button>`;
+    const strip =
+      floor.areas.length > MAX_TAGS || wide ? this._renderRoomStrip(floor, room) : nothing;
+
+    if (wide) {
+      // Tablet i laptop: rzut po lewej, po prawej pokój albo przegląd „Poza domem”.
+      const side =
+        ctx === "away" && !this._showRooms
+          ? this._renderAwayBody()
+          : html`${ctx === "away" ? back : this._renderTodos()}
+            ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}`;
+      return html`<div class="screen wide ${ctx}">
+        <div class="scan" aria-hidden="true"></div>
+        ${this._renderHeader(floor, ctx)}
+        <div class="cols">
+          <div class="col-plan">${this._zoomedPlan(model, floor, room)} ${strip}</div>
+          <aside class="col-side">${side}</aside>
+        </div>
+      </div>`;
+    }
+
     return html`
       <div class="screen">
         <div class="scan" aria-hidden="true"></div>
-        ${this._renderHeader(floor, ctx)}
-        ${ctx === "away"
-          ? html`<button class="back mono rise" @click=${() => (this._showRooms = false)}>
-              ${ICON.left} ${t.backToOverview}
-            </button>`
-          : this._renderTodos()}
-        ${this._renderPlan(model, floor, room)}
-        ${floor.areas.length > MAX_TAGS ? this._renderRoomStrip(floor, room) : nothing}
-        ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}
+        ${this._renderHeader(floor, ctx)} ${ctx === "away" ? back : this._renderTodos()}
+        ${this._renderPlan(model, floor, room)} ${strip} ${room ? this._renderRoom(room) : nothing}
+        ${this._renderScenes()}
       </div>
     `;
+  }
+
+  // Rzut z telefonu powiększony do szerokości kolumny (geometria rzutu jest stała).
+  private _zoomedPlan(model: HomeModel, floor: FloorModel, room: AreaModel | null): TemplateResult {
+    const col = Math.max(PHONE_W, (this._width - 72) * 0.58);
+    const k = Math.min(MAX_ZOOM, col / PHONE_W);
+    return html`<div class="plan-zoom" style=${styleMap({ height: `${SECTION_H * k + 8}px` })}>
+      <div
+        class="plan-inner"
+        style=${styleMap({ width: `${col / k}px`, transform: `scale(${k})` })}
+      >
+        ${this._renderPlan(model, floor, room)}
+      </div>
+    </div>`;
   }
 
   private _context(): Context {
@@ -520,6 +588,13 @@ export class KageHomeCard extends LitElement {
   }
 
   private _renderAway(): TemplateResult {
+    return html`<div class="screen away">
+      <div class="scan" aria-hidden="true"></div>
+      ${this._renderHeader(null, "away")} ${this._renderAwayBody()}
+    </div>`;
+  }
+
+  private _renderAwayBody(): TemplateResult {
     const t = this._t;
     const h = this.hass!;
     const issues = findIssues(h);
@@ -531,10 +606,7 @@ export class KageHomeCard extends LitElement {
     const verdict = worst
       ? format(plural(this._lang, urgent.length, t.verdictIssues), { n: urgent.length })
       : t.verdictOk;
-
-    return html`<div class="screen away">
-      <div class="scan" aria-hidden="true"></div>
-      ${this._renderHeader(null, "away")}
+    return html`
       <section class="verdict cut-m rise ${worst ?? "ok"}" aria-live="polite">
         <span class="v-ico" aria-hidden="true">${worst ? ICON.alert : ICON.check}</span>
         <span class="v-text">${verdict}</span>
@@ -586,10 +658,12 @@ export class KageHomeCard extends LitElement {
         ${people.map((p) => html`<span class="person cut-s">${p}</span>`)}
       </section>
 
-      <button class="rooms-link mono rise" @click=${() => (this._showRooms = true)}>
-        ${t.showRooms} ${ICON.right}
-      </button>
-    </div>`;
+      ${this._width >= WIDE_MIN
+        ? nothing
+        : html`<button class="rooms-link mono rise" @click=${() => (this._showRooms = true)}>
+            ${t.showRooms} ${ICON.right}
+          </button>`}
+    `;
   }
 
   private _stepLabel(s: SecureStep): string {
@@ -2475,6 +2549,36 @@ export class KageHomeCard extends LitElement {
         letter-spacing: 0.1em;
         text-transform: uppercase;
         cursor: pointer;
+      }
+
+      /* --- Tablet i laptop --- */
+      .screen.wide {
+        max-width: 1440px;
+        padding: 0 16px 28px;
+      }
+      .cols {
+        display: grid;
+        grid-template-columns: minmax(0, 58fr) minmax(340px, 42fr);
+        gap: 8px;
+        align-items: start;
+        margin-top: 8px;
+      }
+      .col-plan {
+        min-width: 0;
+      }
+      .plan-zoom {
+        position: relative;
+        overflow: hidden;
+      }
+      .plan-inner {
+        transform-origin: top left;
+      }
+      .col-side {
+        min-width: 0;
+        padding-top: 4px;
+      }
+      .wide .col-side .tiles {
+        gap: 10px;
       }
     `,
   ];
