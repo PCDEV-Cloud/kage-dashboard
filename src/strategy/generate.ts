@@ -43,7 +43,12 @@ export async function generateDashboard(
       strategy: { ...config, type: VIEW_STRATEGY_TYPE, view: "setup" },
     });
   }
-  return { title: t.strategyName, views };
+  const out: LovelaceConfig = { title: t.strategyName, views };
+  // Ukrywanie paska HA przez dodatek kiosk-mode (HACS): czyta klucz `kiosk_mode` z
+  // wygenerowanej konfiguracji, więc przekazujemy go z konfiguracji strategii.
+  if (config.kiosk_mode && typeof config.kiosk_mode === "object")
+    out.kiosk_mode = config.kiosk_mode;
+  return out;
 }
 
 export async function generateView(config: KageConfig, hass: HomeAssistant): Promise<LovelaceView> {

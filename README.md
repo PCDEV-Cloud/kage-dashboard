@@ -26,6 +26,22 @@ strategy:
   type: custom:kage
 ```
 
+## Telefon domownika: KAGE jako ekran główny, bez paska HA
+
+1. W aplikacji HA na telefonie domownika (zalogowanym na jego konto): Profil → **Dashboard** → KAGE. To ustawienie dotyczy tylko tego urządzenia.
+2. Pasek i menu boczne HA ukrywa dodatek [kiosk-mode](https://github.com/NemesisRE/kiosk-mode) (HACS → Frontend). Dopisz w konfiguracji dashboardu (Edytuj → ⋮ → Edytor surowej konfiguracji):
+
+```yaml
+strategy:
+  type: custom:kage
+  kiosk_mode:
+    non_admin_settings:
+      hide_header: true
+      hide_sidebar: true
+```
+
+KAGE przekazuje `kiosk_mode` dalej, więc dodatek działa też na dashboardzie ze strategią. Administrator widzi pasek jak zwykle. Awaryjnie: `?disable_km` na końcu adresu.
+
 ## Rozwój
 
 ```bash

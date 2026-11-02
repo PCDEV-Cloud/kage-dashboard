@@ -79,3 +79,14 @@ describe("i18n", () => {
     expect(plural("pl", 3, forms)).toBe("3 rzeczy");
   });
 });
+
+describe("kiosk_mode pass-through", () => {
+  it("copies kiosk_mode from the strategy config to the dashboard", async () => {
+    const kiosk = { non_admin_settings: { hide_header: true, hide_sidebar: true } };
+    const cfg = await generateDashboard({ type: "custom:kage", kiosk_mode: kiosk }, makeHass());
+    expect(cfg.kiosk_mode).toEqual(kiosk);
+    expect(
+      (await generateDashboard({ type: "custom:kage" }, makeHass())).kiosk_mode,
+    ).toBeUndefined();
+  });
+});

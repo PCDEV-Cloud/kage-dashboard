@@ -95,4 +95,5 @@ export interface LovelaceView {
 export interface LovelaceConfig {
   title?: string;
   views: LovelaceView[];
+  kiosk_mode?: unknown;
 }
