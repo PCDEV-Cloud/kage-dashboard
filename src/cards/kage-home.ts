@@ -17,6 +17,7 @@ import {
   type GroupControl,
   type RoomControls,
 } from "../engine/devices";
+import { callService } from "../engine/calls";
 import { autoLayout } from "../engine/layout";
 import { buildHomeModel, type AreaModel, type FloorModel, type HomeModel } from "../engine/model";
 import { findTodos } from "../engine/todos";
@@ -282,7 +283,7 @@ export class KageHomeCard extends LitElement {
   }
 
   private _call(domain: string, service: string, data: Record<string, unknown>): void {
-    void this.hass?.callService?.(domain, service, data);
+    if (this.hass) void callService(this.hass, domain, service, data);
   }
 
   private _goFloor(floor: FloorModel): void {

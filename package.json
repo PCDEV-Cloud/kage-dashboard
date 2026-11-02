@@ -1,6 +1,6 @@
 {
   "name": "kage-dashboard",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "KAGE — kontekstowy dashboard Home Assistant generowany automatycznie z rejestrów.",
   "type": "module",
   "private": true,
