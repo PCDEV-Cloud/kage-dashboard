@@ -1,3 +1,4 @@
+import "./cards/kage-home";
 import { stringsFor } from "./i18n";
 import { generateDashboard, generateView } from "./strategy/generate";
 import type { HomeAssistant, KageConfig } from "./types";
@@ -52,7 +53,7 @@ if (!window.customStrategies.some((s) => s.type === "kage" && s.strategyType ===
     strategyType: "dashboard",
     name: "KAGE",
     description: "Kontekstowy dashboard generowany z pięter, obszarów i urządzeń.",
-    documentationURL: "https://github.com/",
+    documentationURL: "https://github.com/PCDEV-Cloud/kage-dashboard",
   });
 }
 

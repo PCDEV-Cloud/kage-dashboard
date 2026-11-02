@@ -15,7 +15,17 @@ export interface FloorModel {
   name: string;
   level: number;
   icon: string | null;
+  outdoor: boolean; // teren zewnętrzny: inna siatka, niskie ściany, obok budynku
   areas: AreaModel[];
+}
+
+// Domysł „teren zewnętrzny” do czasu przełącznika w edytorze (etap 6).
+const OUTDOOR_ICON = /tree|flower|grass|nature|pine|forest|garden|fence|outdoor|pool|terrain|park/i;
+const OUTDOOR_NAME =
+  /outdoor|outside|garden|exterior|yard|grounds|zewn|ogr[oó]d|teren|posesj|podw[oó]rk|花园|户外|室外/i;
+
+export function isOutdoorFloor(floor: { name: string; icon?: string | null }): boolean {
+  return OUTDOOR_NAME.test(floor.name) || (!!floor.icon && OUTDOOR_ICON.test(floor.icon));
 }
 
 // Piętra o tym samym poziomie leżą obok siebie (np. parter i ogród).
@@ -142,6 +152,7 @@ export function buildHomeModel(hass: HomeAssistant, floorEntries: FloorEntry[]):
     name: floor.name,
     level: floor.level ?? 0,
     icon: floor.icon ?? null,
+    outdoor: isOutdoorFloor(floor),
     areas: Object.values(hass.areas)
       .filter((a) => a.floor_id === floor.floor_id)
       .sort(byName)
@@ -159,9 +170,13 @@ export function buildHomeModel(hass: HomeAssistant, floorEntries: FloorEntry[]):
     list.push(floor);
     levelMap.set(floor.level, list);
   }
+  // Na jednym poziomie budynek pierwszy, teren zewnętrzny obok.
   const levels: LevelModel[] = [...levelMap.entries()]
     .sort(([a], [b]) => b - a)
-    .map(([level, list]) => ({ level, floors: list }));
+    .map(([level, list]) => ({
+      level,
+      floors: [...list].sort((a, b) => Number(a.outdoor) - Number(b.outdoor)),
+    }));
 
   return {
     levels,

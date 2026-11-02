@@ -59,6 +59,7 @@ export interface HomeAssistant {
   language?: string;
   locale?: { language: string };
   callWS<T>(msg: { type: string; [key: string]: unknown }): Promise<T>;
+  callService?(domain: string, service: string, data?: Record<string, unknown>): Promise<unknown>;
 }
 
 // Konfiguracja strategii zapisana w dashboardzie (`strategy: type: custom:kage`).

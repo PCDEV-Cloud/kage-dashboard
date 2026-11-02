@@ -1,13 +1,22 @@
-import { generateDashboard, generateView, VIEW_STRATEGY_TYPE } from "../src/strategy/generate";
+import {
+  generateDashboard,
+  generateView,
+  HOME_CARD_TYPE,
+  VIEW_STRATEGY_TYPE,
+} from "../src/strategy/generate";
 import { languageOf, plural } from "../src/i18n";
 import { makeHass } from "./fixtures/house";
 
 describe("generateDashboard", () => {
-  it("returns a home view that delegates to the KAGE view strategy", async () => {
-    const config = await generateDashboard({ type: "custom:kage" }, makeHass());
-    expect(config.views).toHaveLength(1);
-    expect(config.views[0].strategy?.type).toBe(VIEW_STRATEGY_TYPE);
-    expect(config.views[0].title).toBe("Dom");
+  it("returns the home view, plus the setup view for admins only", async () => {
+    const admin = await generateDashboard({ type: "custom:kage" }, makeHass());
+    expect(admin.views.map((v) => v.path)).toEqual(["home", "setup"]);
+    expect(admin.views[0].strategy?.type).toBe(VIEW_STRATEGY_TYPE);
+    expect(admin.views[0].title).toBe("Dom");
+    const hass = makeHass();
+    hass.user = { id: "u2", name: "Ania", is_admin: false };
+    const member = await generateDashboard({ type: "custom:kage" }, hass);
+    expect(member.views.map((v) => v.path)).toEqual(["home"]);
   });
 
   it("uses the user's language", async () => {
@@ -19,8 +28,14 @@ describe("generateDashboard", () => {
 });
 
 describe("generateView", () => {
+  it("renders the home view as a full-screen KAGE card", async () => {
+    const view = await generateView({ type: "custom:kage", view: "home" }, makeHass());
+    expect(view.type).toBe("panel");
+    expect(view.cards?.[0].type).toBe(HOME_CARD_TYPE);
+  });
+
   it("creates a section per floor, top floor first, then unassigned", async () => {
-    const view = await generateView({ type: "custom:kage" }, makeHass());
+    const view = await generateView({ type: "custom:kage", view: "setup" }, makeHass());
     const headings = view
       .sections!.map((s) => s.cards.find((c) => c.type === "heading")?.heading)
       .filter(Boolean);
@@ -43,7 +58,7 @@ describe("unassigned report", () => {
       state: "1",
       attributes: { friendly_name: "Loose sensor" },
     };
-    const view = await generateView({ type: "custom:kage" }, hass);
+    const view = await generateView({ type: "custom:kage", view: "setup" }, hass);
     const section = view.sections![view.sections!.length - 1];
     const report = String(section.cards[1].content);
     expect(report).toContain("`light` 1 · `sensor` 1");

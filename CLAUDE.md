@@ -45,4 +45,4 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 
 ## Etapy
 
-0–1 zakończone (discovery, design). **Etap 2 (szkielet techniczny): ten stan.** Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.
+0–1 zakończone (discovery, design). Etap 2 (szkielet) zakończony; v0.2 = ekran „W domu” na telefonie (karta `kage-home-card`, widok Porządki tylko dla admina). Dalej: 3 silnik generowania (role, konteksty, problemy), 4 karty i motyw, 5 widoki specjalne, 6 konfiguracja i UX (edytor ról i rzutu), 7 testy i wydanie 1.0.

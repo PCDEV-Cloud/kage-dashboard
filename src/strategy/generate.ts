@@ -15,40 +15,44 @@ import type {
   LovelaceView,
 } from "../types";
 
-// Etap 2: strategia dashboardu tworzy listę widoków, strategia widoku buduje jego zawartość
-// dopiero przy otwarciu. Karty są na razie wbudowane w HA; własne karty KAGE dochodzą w etapie 4.
+// Strategia dashboardu tworzy listę widoków, strategia widoku buduje zawartość przy otwarciu.
+// „Dom”: karta KAGE na cały ekran. „Porządki”: raport rejestrów, tylko dla administratora
+// (konfiguracja, nie widok dla domowników).
 
 export const VIEW_STRATEGY_TYPE = "custom:kage";
+export const HOME_CARD_TYPE = "custom:kage-home-card";
 
 export async function generateDashboard(
   config: KageConfig,
   hass: HomeAssistant,
 ): Promise<LovelaceConfig> {
   const t = stringsFor(hass);
-  return {
-    title: t.strategyName,
-    views: [
-      {
-        title: t.viewHome,
-        path: "home",
-        icon: "mdi:home-lightning-bolt",
-        strategy: { ...config, type: VIEW_STRATEGY_TYPE, view: "home" },
-      },
-    ],
-  };
+  const views: LovelaceView[] = [
+    {
+      title: t.viewHome,
+      path: "home",
+      icon: "mdi:home-lightning-bolt",
+      strategy: { ...config, type: VIEW_STRATEGY_TYPE, view: "home" },
+    },
+  ];
+  if (hass.user?.is_admin) {
+    views.push({
+      title: t.viewSetup,
+      path: "setup",
+      icon: "mdi:broom",
+      strategy: { ...config, type: VIEW_STRATEGY_TYPE, view: "setup" },
+    });
+  }
+  return { title: t.strategyName, views };
 }
 
-export async function generateView(
-  _config: KageConfig,
-  hass: HomeAssistant,
-): Promise<LovelaceView> {
-  const floors = await loadFloors(hass);
-  const model = buildHomeModel(hass, floors);
-  return {
-    type: "sections",
-    max_columns: 4,
-    sections: homeSections(model, hass),
-  };
+export async function generateView(config: KageConfig, hass: HomeAssistant): Promise<LovelaceView> {
+  if (config.view === "setup") {
+    const floors = await loadFloors(hass);
+    const model = buildHomeModel(hass, floors);
+    return { type: "sections", max_columns: 4, sections: homeSections(model, hass) };
+  }
+  return { type: "panel", cards: [{ type: HOME_CARD_TYPE }] };
 }
 
 function areaCard(area: AreaModel): LovelaceCard {
