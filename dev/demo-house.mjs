@@ -50,15 +50,9 @@ export function demoHass(language = "en") {
   add("light.bathroom_shower", "bathroom", "off", { friendly_name: "Shower Light", supported_color_modes: ["onoff"] });
   add("climate.bathroom", "bathroom", "heat", { friendly_name: "Bathroom", current_temperature: 23.1, temperature: 24, hvac_action: "heating" });
 
-  add("cover.master_blinds", "master", "open", {
-    friendly_name: "Blinds",
-    device_class: "blind",
-    entity_id: ["cover.master_left", "cover.master_right"],
-    current_position: 60,
-  });
-  add("cover.master_left", "master", "open", { friendly_name: "Left Blind", device_class: "blind", current_position: 100 });
-  add("cover.master_right", "master", "open", { friendly_name: "Right Blind", device_class: "blind", current_position: 20 });
-  add("cover.master_screen", "master", "closed", { friendly_name: "Screen", current_position: 0 });
+  add("cover.master_left", "master", "open", { friendly_name: "Left Blind", device_class: "shade", current_position: 100 });
+  add("cover.master_right", "master", "open", { friendly_name: "Right Blind", device_class: "shade", current_position: 20 });
+  add("cover.master_screen", "master", "closed", { friendly_name: "Screen", device_class: "shade", current_position: 0 });
   add("climate.master", "master", "heat", { friendly_name: "Master Bedroom", current_temperature: 19.8, temperature: 20.5, hvac_action: "idle" });
   add("media_player.tv", "master", "idle", { friendly_name: "Apple TV" });
   add("media_player.speaker_1", "master", "playing", { friendly_name: "HomePod Mini 1-1", media_title: "Nocturne in E-flat", media_artist: "Chopin" });

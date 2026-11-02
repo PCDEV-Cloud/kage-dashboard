@@ -5,12 +5,15 @@ import {
   activeMedia,
   brightnessPct,
   controlCount,
+  hasControls,
   coverPosition,
   isDimmable,
   isOn,
   roomClimate,
   roomControls,
   roomGlow,
+  type CoverControl,
+  type CoverKind,
   type GroupControl,
   type RoomControls,
 } from "../engine/devices";
@@ -28,7 +31,7 @@ const LAYER_H = 113;
 const SECTION_H = 232;
 const MAX_TAGS = 5; // więcej pokoi: etykieta tylko wybranego, wybór z paska pod rzutem
 
-type Expanded = "lights" | "covers" | "climates" | "media" | null;
+type Expanded = "lights" | "climates" | "media" | `cover:${CoverKind}` | null;
 
 const ICON = {
   bulb: html`<svg
@@ -256,7 +259,7 @@ export class KageHomeCard extends LitElement {
       const c = roomControls(this.hass!, area);
       const s =
         (c.lights ? 3 : 0) +
-        (c.covers ? 3 : 0) +
+        (c.covers.length ? 3 : 0) +
         (c.media.length ? 2 : 0) +
         (c.climates.length ? 1 : 0) +
         controlCount(c) / 100;
@@ -621,7 +624,7 @@ export class KageHomeCard extends LitElement {
     let body: TemplateResult;
     if (this._expanded) {
       body = this._renderList(area, c, this._expanded);
-    } else if (!c.lights && !c.covers && !c.climates.length && !c.media.length) {
+    } else if (!hasControls(c)) {
       body = html`<div class="empty-room">
         <span>${t.nothingToControl}</span>
         <span class="mono small">${t.sensorsInBackground}</span>
@@ -629,9 +632,10 @@ export class KageHomeCard extends LitElement {
     } else {
       body = html`<div class="tiles">
         ${c.lights ? this._lightTile(area, c.lights) : nothing}
-        ${c.covers ? this._coverTile(c.covers) : nothing}
+        ${c.covers.filter((g) => g.kind !== "screen").map((g) => this._coverTile(area, g))}
         ${c.climates.length ? this._climateTile(c.climates) : nothing}
         ${c.media.length ? this._mediaTile(c.media) : nothing}
+        ${c.covers.filter((g) => g.kind === "screen").map((g) => this._coverTile(area, g))}
       </div>`;
     }
 
@@ -716,7 +720,16 @@ export class KageHomeCard extends LitElement {
     </div>`;
   }
 
-  private _coverTile(g: GroupControl): TemplateResult {
+  // Podpis kafla: rodzaj osłon; pojedyncza osłona (np. ekran) nazwą z HA.
+  private _coverLabel(area: AreaModel, g: CoverControl): string {
+    if (g.members.length === 1 && !g.all)
+      return this._name(g.members[0]!, area) || this._t.covers[g.kind];
+    return this._t.covers[g.kind];
+  }
+
+  private _coverTile(area: AreaModel, g: CoverControl): TemplateResult {
+    const label = this._coverLabel(area, g);
+    const variant = g.kind === "screen" ? "screen" : "";
     const t = this._t;
     const h = this.hass!;
     const ids = g.members;
@@ -725,10 +738,10 @@ export class KageHomeCard extends LitElement {
       ? coverPosition(h, g.all)
       : Math.round(ids.reduce((s, id) => s + coverPosition(h, id), 0) / ids.length);
     const state = pos === 0 ? t.closed : pos === 100 ? t.open : format(t.openPct, { n: pos });
-    return html`<div class="tile cut-s blind">
+    return html`<div class="tile cut-s blind ${variant}">
       <div class="tile-head">
         <span class="tt">
-          <span class="name">${t.blinds}</span>
+          <span class="name">${label}</span>
           <span class="st mono">${state}</span>
         </span>
         <span class="row">
@@ -750,7 +763,7 @@ export class KageHomeCard extends LitElement {
       </div>
       <div class="row bar-row">
         <div class="bar"><i style=${styleMap({ width: `${pos}%` })}></i></div>
-        ${ids.length > 1 ? this._listButton("covers", ids.length) : nothing}
+        ${ids.length > 1 ? this._listButton(`cover:${g.kind}`, ids.length) : nothing}
       </div>
     </div>`;
   }
@@ -857,7 +870,14 @@ export class KageHomeCard extends LitElement {
   ): TemplateResult {
     const t = this._t;
     const h = this.hass!;
-    const title = { lights: t.light, covers: t.blinds, climates: t.heating, media: t.music }[kind];
+    const coverGroup = kind.startsWith("cover:")
+      ? c.covers.find((g) => `cover:${g.kind}` === kind)
+      : undefined;
+    const title = coverGroup
+      ? this._coverLabel(area, coverGroup)
+      : { lights: t.light, climates: t.heating, media: t.music }[
+          kind as "lights" | "climates" | "media"
+        ];
     let rows: TemplateResult[] = [];
     if (kind === "lights" && c.lights) {
       rows = c.lights.members.map((id) => {
@@ -873,8 +893,8 @@ export class KageHomeCard extends LitElement {
           </button>
         </div>`;
       });
-    } else if (kind === "covers" && c.covers) {
-      rows = c.covers.members.map((id) => {
+    } else if (coverGroup) {
+      rows = coverGroup.members.map((id) => {
         const p = coverPosition(h, id);
         return html`<div class="lrow">
           <span class="lname">${this._name(id, area)}</span>
@@ -1421,6 +1441,13 @@ export class KageHomeCard extends LitElement {
       .tile.blind {
         border-color: rgba(0, 229, 255, 0.3);
         background: rgba(0, 229, 255, 0.05);
+      }
+      .tile.blind.screen {
+        border-color: rgba(255, 43, 214, 0.35);
+        background: rgba(255, 43, 214, 0.04);
+      }
+      .tile.blind.screen .bar i {
+        background: var(--kage-scene, #ff2bd6);
       }
       .tile.clim {
         border-color: rgba(61, 255, 162, 0.35);

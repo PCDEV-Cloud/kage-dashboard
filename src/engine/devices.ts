@@ -15,14 +15,63 @@ export type LightControl = GroupControl;
 
 export interface RoomControls {
   lights: LightControl | null;
-  covers: GroupControl | null;
+  // Osłony okien: osobny kafel na każdy rodzaj (żaluzje, rolety, rolety zewnętrzne, zasłony…).
+  covers: CoverControl[];
   climates: string[];
   media: string[];
 }
 
-// Rolety, zasłony, ekrany. Brama i drzwi garażowe to akcje fizyczne: trafią do przeglądu
-// (z przytrzymaniem), nie do panelu pokoju.
-const PHYSICAL_COVER_CLASSES = new Set(["garage", "gate", "door"]);
+// Rodzaj osłony = klasa urządzenia w HA („Show as”). Ekran projektora HA nie ma,
+// więc rozpoznajemy go osobno; „other” to osłony bez ustawionej klasy.
+export type CoverKind =
+  | "shade"
+  | "blind"
+  | "shutter"
+  | "curtain"
+  | "awning"
+  | "window"
+  | "other"
+  | "screen";
+
+const COVER_ORDER: CoverKind[] = [
+  "shade",
+  "blind",
+  "shutter",
+  "curtain",
+  "awning",
+  "window",
+  "other",
+  "screen",
+];
+
+export interface CoverControl extends GroupControl {
+  kind: CoverKind;
+}
+
+// Brama, drzwi garażowe, drzwi i przepustnice nie są osłonami okien: brama i garaż trafią
+// do przeglądu (z przytrzymaniem), nie do panelu pokoju.
+const NON_ROOM_COVER_CLASSES = new Set(["garage", "gate", "door", "damper"]);
+
+// HA nie ma klasy dla ekranu projektora. Rozpoznajemy go po etykiecie albo po nazwie.
+// Samo „screen” tylko jako cała nazwa: „screen” bywa też nazwą zewnętrznej rolety ZIP.
+const SCREEN_LABELS = new Set(["ekran", "screen", "projector", "projektor"]);
+const SCREEN_NAME =
+  /projector|projektor|projection|projekcyjn|beamer|leinwand|投影|幕布|^\s*(ekran|screen)\s*$/i;
+
+export function isProjectorScreen(hass: HomeAssistant, id: string): boolean {
+  const entry = hass.entities[id];
+  if (entry?.labels?.some((l) => SCREEN_LABELS.has(l.toLowerCase()))) return true;
+  const name = entry?.name ?? hass.states[id]?.attributes.friendly_name;
+  return typeof name === "string" && SCREEN_NAME.test(name);
+}
+
+export function coverKindOf(hass: HomeAssistant, id: string): CoverKind {
+  if (isProjectorScreen(hass, id)) return "screen";
+  const cls = hass.states[id]?.attributes.device_class;
+  return typeof cls === "string" && (COVER_ORDER as string[]).includes(cls)
+    ? (cls as CoverKind)
+    : "other";
+}
 
 export function stateOf(hass: HomeAssistant, id: string): HassEntityState | undefined {
   return hass.states[id];
@@ -47,12 +96,12 @@ export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls
     hass,
     area.entityIds.filter((id) => domainOf(id) === "light" && available(hass, id)),
   );
-  const covers = grouped(
+  const covers = coverControls(
     hass,
     area.entityIds.filter((id) => {
       if (domainOf(id) !== "cover" || !available(hass, id)) return false;
       const cls = hass.states[id]?.attributes.device_class;
-      return !(typeof cls === "string" && PHYSICAL_COVER_CLASSES.has(cls));
+      return !(typeof cls === "string" && NON_ROOM_COVER_CLASSES.has(cls));
     }),
   );
   const climates = area.entityIds.filter((id) => domainOf(id) === "climate" && available(hass, id));
@@ -62,14 +111,42 @@ export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls
   return { lights, covers, climates, media };
 }
 
+// Pojedyncze osłony dzielimy według rodzaju. Grupa z HA trafia do rodzaju, do którego
+// należą wszystkie jej osłony; grupa mieszana (np. rolety + ekran) zostaje pominięta,
+// żeby „wszystkie” nie ruszały osłon innego rodzaju.
+function coverControls(hass: HomeAssistant, ids: string[]): CoverControl[] {
+  const singles = ids.filter((id) => !isGroup(hass.states[id]));
+  const groups = ids.filter((id) => isGroup(hass.states[id]));
+  const byKind = new Map<CoverKind, CoverControl>();
+  for (const id of singles) {
+    const kind = coverKindOf(hass, id);
+    const c = byKind.get(kind) ?? { kind, all: null, members: [] };
+    c.members.push(id);
+    byKind.set(kind, c);
+  }
+  for (const g of groups) {
+    const inside = (hass.states[g]?.attributes.entity_id as unknown[]).filter(
+      (m): m is string => typeof m === "string",
+    );
+    const kinds = new Set(inside.filter((m) => hass.states[m]).map((m) => coverKindOf(hass, m)));
+    const kind: CoverKind | null =
+      kinds.size === 1 ? [...kinds][0]! : kinds.size === 0 ? coverKindOf(hass, g) : null;
+    if (!kind) continue;
+    const c = byKind.get(kind);
+    if (!c) byKind.set(kind, { kind, all: g, members: [g] });
+    else if (!c.all) c.all = g;
+  }
+  return COVER_ORDER.flatMap((k) => byKind.get(k) ?? []);
+}
+
 export function hasControls(c: RoomControls): boolean {
-  return !!c.lights || !!c.covers || c.climates.length > 0 || c.media.length > 0;
+  return !!c.lights || c.covers.length > 0 || c.climates.length > 0 || c.media.length > 0;
 }
 
 export function controlCount(c: RoomControls): number {
   return (
     (c.lights?.members.length ?? 0) +
-    (c.covers?.members.length ?? 0) +
+    c.covers.reduce((n, g) => n + g.members.length, 0) +
     c.climates.length +
     c.media.length
   );

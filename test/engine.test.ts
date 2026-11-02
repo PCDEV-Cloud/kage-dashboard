@@ -2,6 +2,7 @@ import { buildHomeModel, isOutdoorFloor } from "../src/engine/model";
 import {
   brightnessPct,
   coverPosition,
+  isProjectorScreen,
   roomClimate,
   roomControls,
   roomGlow,
@@ -22,7 +23,7 @@ function bedroomHass(): HomeAssistant {
   add("cover.blinds", "open", { entity_id: ["cover.left", "cover.right"], current_position: 60 });
   add("cover.left", "open", { device_class: "blind", current_position: 100 });
   add("cover.right", "open", { device_class: "blind", current_position: 20 });
-  add("cover.screen", "closed", {});
+  add("cover.screen", "closed", { friendly_name: "Screen", device_class: "shade" });
   add("cover.garage", "closed", { device_class: "garage" });
   add("light.all", "on", {
     entity_id: ["light.a", "light.b"],
@@ -51,12 +52,20 @@ describe("roomControls", () => {
 
   it("uses a group as the 'all' target and lists the single devices", () => {
     expect(c.lights).toEqual({ all: "light.all", members: ["light.a", "light.b"] });
-    expect(c.covers?.all).toBe("cover.blinds");
-    expect(c.covers?.members).toEqual(["cover.left", "cover.right", "cover.screen"]);
+    expect(c.covers[0]).toEqual({
+      kind: "blind",
+      all: "cover.blinds",
+      members: ["cover.left", "cover.right"],
+    });
+  });
+
+  it("keeps a projector screen apart from window blinds", () => {
+    expect(c.covers.map((g) => g.kind)).toEqual(["blind", "screen"]);
+    expect(c.covers[1]).toEqual({ kind: "screen", all: null, members: ["cover.screen"] });
   });
 
   it("keeps garage doors and gates out of the room panel", () => {
-    expect(c.covers?.members).not.toContain("cover.garage");
+    expect(c.covers.flatMap((g) => g.members)).not.toContain("cover.garage");
   });
 
   it("reads room climate, light glow and positions", () => {
@@ -65,6 +74,51 @@ describe("roomControls", () => {
     expect(brightnessPct(hass, "light.all")).toBe(50);
     expect(coverPosition(hass, "cover.screen")).toBe(0);
     expect(c.media).toEqual(["media_player.speaker", "media_player.tv"]);
+  });
+});
+
+describe("cover kinds", () => {
+  it("gives every cover class its own tile and drops mixed groups", () => {
+    const hass = makeHass("pl");
+    const add = (id: string, attributes: Record<string, unknown>) => {
+      hass.entities[id] = { entity_id: id, area_id: "sypialnia" };
+      hass.states[id] = { entity_id: id, state: "open", attributes };
+    };
+    add("cover.inner", { device_class: "shade" });
+    add("cover.outer", { device_class: "shutter" });
+    add("cover.slats", { device_class: "blind" });
+    add("cover.drape", { device_class: "curtain" });
+    add("cover.all_outer", { entity_id: ["cover.outer"] });
+    add("cover.everything", { entity_id: ["cover.inner", "cover.outer"] });
+    const area = buildHomeModel(hass, floors)
+      .floors.find((f) => f.id === "pietro")!
+      .areas.find((a) => a.id === "sypialnia")!;
+    const c = roomControls(hass, area);
+    expect(c.covers.map((g) => [g.kind, g.all, g.members])).toEqual([
+      ["shade", null, ["cover.inner"]],
+      ["blind", null, ["cover.slats"]],
+      ["shutter", "cover.all_outer", ["cover.outer"]],
+      ["curtain", null, ["cover.drape"]],
+    ]);
+  });
+
+  it("recognises screens by label or name", () => {
+    const hass = makeHass("pl");
+    const add = (id: string, attributes: Record<string, unknown>, labels: string[] = []) => {
+      hass.entities[id] = { entity_id: id, area_id: "sypialnia", labels };
+      hass.states[id] = { entity_id: id, state: "open", attributes };
+    };
+    add("cover.zip", { friendly_name: "Screen ZIP taras", device_class: "shade" });
+    add("cover.plotno", { friendly_name: "Płótno" }, ["ekran"]);
+    const area = buildHomeModel(hass, floors)
+      .floors.find((f) => f.id === "pietro")!
+      .areas.find((a) => a.id === "sypialnia")!;
+    const c = roomControls(hass, area);
+    expect(c.covers.map((g) => [g.kind, g.members])).toEqual([
+      ["shade", ["cover.zip"]],
+      ["screen", ["cover.plotno"]],
+    ]);
+    expect(isProjectorScreen(hass, "cover.zip")).toBe(false);
   });
 });
 
