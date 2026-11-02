@@ -374,6 +374,8 @@ export class KageHomeCard extends LitElement {
     _editing: { state: true },
     _zoom: { state: true },
     _rot: { state: true },
+    _tx: { state: true },
+    _ty: { state: true },
     _saving: { state: true },
     _saveError: { state: true },
   };
@@ -402,8 +404,8 @@ export class KageHomeCard extends LitElement {
   // Widok rzutu: przybliżenie i obrót (gesty); tylko na czas sesji.
   private _zoom = 1;
   private _rot = 0;
-  private _liveZoom = 1;
-  private _liveRot = 0;
+  private _tx = 0;
+  private _ty = 0;
   private _saving = false;
   private _saveError = "";
   private _resize?: ResizeObserver;
@@ -654,8 +656,8 @@ export class KageHomeCard extends LitElement {
       <div class="screen">
         <div class="scan" aria-hidden="true"></div>
         ${this._renderHeader(floor, ctx)} ${ctx === "away" ? back : this._renderTodos()}
-        ${this._renderPlan(model, floor, room)} ${strip} ${room ? this._renderRoom(room) : nothing}
-        ${this._renderScenes()}
+        ${this._renderPlan(model, floor, room, this._phonePlanH())} ${strip}
+        ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}
       </div>
     `;
   }
@@ -674,63 +676,158 @@ export class KageHomeCard extends LitElement {
     }
   }
 
-  // --- gesty na rzucie: dwa palce przybliżają i obracają, Ctrl + kółko przybliża,
-  // Shift + kółko obraca. Jeden palec przewija stronę jak zwykle. ---
+  // --- gesty na rzucie ---
+  // Jeden palec (albo mysz) w poziomie obraca rzut; ruch w pionie przewija stronę.
+  // Dwa palce przybliżają i przesuwają rzut, z punktem między palcami w miejscu.
+  // Laptop: Ctrl + kółko (szczypanie na touchpadzie) przybliża, Shift + kółko obraca.
 
-  private _pointers = new Map<number, { x: number; y: number }>();
-  private _pinch: { d: number; a: number; z: number; r: number } | null = null;
+  private _drag: { id: number; x: number; r: number; moved: boolean } | null = null;
+  private _pinch: {
+    d: number;
+    a: number;
+    z: number;
+    r: number;
+    c: [number, number]; // punkt rzutu pod palcami (współrzędne przed przybliżeniem)
+  } | null = null;
+  private _live = { z: 1, r: 0, tx: 0, ty: 0 };
+  private _suppressClick = false;
 
-  private _pinchState(): { d: number; a: number } {
-    const [p, q] = [...this._pointers.values()];
-    return {
-      d: Math.hypot(q!.x - p!.x, q!.y - p!.y) || 1,
-      a: (Math.atan2(q!.y - p!.y, q!.x - p!.x) * 180) / Math.PI,
-    };
+  private _planEl(): HTMLElement | null {
+    return this.renderRoot.querySelector<HTMLElement>(".plan");
   }
 
-  private _applyView(zoom: number, rot: number, el: HTMLElement): void {
-    el.style.setProperty("--zoom", String(zoom));
-    el.style.setProperty("--rot", `${rot}deg`);
+  // Punkt ekranu → współrzędne sekcji rzutu (uwzględnia powiększenie układu szerokiego).
+  private _local(el: HTMLElement, x: number, y: number): [number, number] {
+    const r = el.getBoundingClientRect();
+    const k = r.width / (el.offsetWidth || r.width || 1);
+    return [(x - r.left) / k, (y - r.top) / k];
+  }
+
+  private _applyView(el: HTMLElement | null = this._planEl()): void {
+    if (!el) return;
+    const v = this._live;
+    el.style.setProperty("--zoom", String(v.z));
+    el.style.setProperty("--rot", `${v.r}deg`);
+    el.style.setProperty("--tx", `${v.tx}px`);
+    el.style.setProperty("--ty", `${v.ty}px`);
+  }
+
+  private _commitView(): void {
+    this._zoom = this._live.z;
+    this._rot = this._live.r;
+    this._tx = this._live.tx;
+    this._ty = this._live.ty;
+  }
+
+  private _syncLive(): void {
+    this._live = { z: this._zoom, r: this._rot, tx: this._tx, ty: this._ty };
   }
 
   private _gestureDown(e: PointerEvent): void {
-    if (e.pointerType === "mouse") return;
-    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (this._pointers.size === 2) {
-      const g = this._pinchState();
-      this._pinch = { ...g, z: this._zoom, r: this._rot };
-    }
+    if (this._pinch || (e.pointerType === "mouse" && e.button !== 0)) return;
+    if ((e.target as Element).closest?.("button")) return; // karty pięter, przycisk boczny
+    this._syncLive();
+    this._drag = { id: e.pointerId, x: e.clientX, r: this._rot, moved: false };
   }
 
   private _gestureMove(e: PointerEvent): void {
-    if (!this._pointers.has(e.pointerId)) return;
-    this._pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-    if (!this._pinch || this._pointers.size < 2) return;
-    const g = this._pinchState();
-    this._liveZoom = clampZoom((this._pinch.z * g.d) / this._pinch.d);
-    this._liveRot = normRot(this._pinch.r + (g.a - this._pinch.a));
-    this._applyView(this._liveZoom, this._liveRot, e.currentTarget as HTMLElement);
+    const d = this._drag;
+    if (!d || d.id !== e.pointerId || this._pinch) return;
+    const dx = e.clientX - d.x;
+    if (!d.moved && Math.abs(dx) < 8) return;
+    d.moved = true;
+    this._live.r = normRot(d.r + dx * 0.5);
+    this._applyView(e.currentTarget as HTMLElement);
   }
 
   private _gestureUp(e: PointerEvent): void {
-    this._pointers.delete(e.pointerId);
-    if (this._pinch && this._pointers.size < 2) {
-      this._pinch = null;
-      this._zoom = this._liveZoom;
-      this._rot = this._liveRot;
+    const d = this._drag;
+    if (!d || d.id !== e.pointerId) return;
+    this._drag = null;
+    if (d.moved) {
+      this._suppressClick = true; // obrót to nie stuknięcie w pokój
+      setTimeout(() => (this._suppressClick = false), 0);
+      this._commitView();
     }
   }
 
-  private _wheel(e: WheelEvent): void {
-    if (e.ctrlKey) {
-      e.preventDefault();
-      this._zoom = clampZoom(this._zoom * Math.exp(-e.deltaY * 0.01));
-    } else if (e.shiftKey) {
-      e.preventDefault();
-      this._rot = normRot(this._rot + (e.deltaY || e.deltaX) * 0.25);
+  private _onTouchStart = (e: TouchEvent): void => {
+    const el = this._planEl();
+    if (!el || e.touches.length !== 2 || !e.composedPath().includes(el)) return;
+    e.preventDefault();
+    if (this._drag) {
+      this._live.r = this._drag.r; // anuluj obrót jednym palcem
+      this._drag = null;
     }
-    this._liveZoom = this._zoom;
-    this._liveRot = this._rot;
+    this._syncLive();
+    const [t0, t1] = [e.touches[0]!, e.touches[1]!];
+    const mid = this._local(el, (t0.clientX + t1.clientX) / 2, (t0.clientY + t1.clientY) / 2);
+    this._pinch = {
+      d: Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1,
+      a: (Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * 180) / Math.PI,
+      z: this._zoom,
+      r: this._rot,
+      c: [(mid[0] - this._tx) / this._zoom, (mid[1] - this._ty) / this._zoom],
+    };
+  };
+
+  private _onTouchMove = (e: TouchEvent): void => {
+    const p = this._pinch;
+    const el = this._planEl();
+    if (!p || !el || e.touches.length < 2) return;
+    e.preventDefault();
+    const [t0, t1] = [e.touches[0]!, e.touches[1]!];
+    const mid = this._local(el, (t0.clientX + t1.clientX) / 2, (t0.clientY + t1.clientY) / 2);
+    const d = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY) || 1;
+    const a = (Math.atan2(t1.clientY - t0.clientY, t1.clientX - t0.clientX) * 180) / Math.PI;
+    const z = clampZoom((p.z * d) / p.d);
+    this._live = {
+      z,
+      r: normRot(p.r + (a - p.a)),
+      tx: mid[0] - p.c[0] * z,
+      ty: mid[1] - p.c[1] * z,
+    };
+    this._applyView(el);
+  };
+
+  private _onTouchEnd = (e: TouchEvent): void => {
+    if (this._pinch && e.touches.length < 2) {
+      this._pinch = null;
+      this._commitView();
+    }
+  };
+
+  private _onClickCapture = (e: Event): void => {
+    if (this._suppressClick) {
+      e.stopPropagation();
+      e.preventDefault();
+      this._suppressClick = false;
+    }
+  };
+
+  protected firstUpdated(): void {
+    const root = this.renderRoot;
+    root.addEventListener("touchstart", this._onTouchStart as EventListener, { passive: false });
+    root.addEventListener("touchmove", this._onTouchMove as EventListener, { passive: false });
+    root.addEventListener("touchend", this._onTouchEnd as EventListener);
+    root.addEventListener("touchcancel", this._onTouchEnd as EventListener);
+    root.addEventListener("click", this._onClickCapture, { capture: true });
+  }
+
+  private _wheel(e: WheelEvent): void {
+    if (!e.ctrlKey && !e.shiftKey) return;
+    e.preventDefault();
+    this._syncLive();
+    if (e.ctrlKey) {
+      const el = e.currentTarget as HTMLElement;
+      const m = this._local(el, e.clientX, e.clientY);
+      const c = [(m[0] - this._tx) / this._zoom, (m[1] - this._ty) / this._zoom];
+      const z = clampZoom(this._zoom * Math.exp(-e.deltaY * 0.01));
+      this._live = { ...this._live, z, tx: m[0] - c[0]! * z, ty: m[1] - c[1]! * z };
+    } else {
+      this._live.r = normRot(this._rot + (e.deltaY || e.deltaX) * 0.25);
+    }
+    this._commitView();
   }
 
   // Położenie płaszczyzny piętra `f` w grupie jednego poziomu, względem oglądanej (viewCol).
@@ -757,6 +854,12 @@ export class KageHomeCard extends LitElement {
         ${this._renderPlan(model, floor, room, sectionH)}
       </div>
     </div>`;
+  }
+
+  // Rzut na telefonie: wyższy na wysokich ekranach (łatwiej o gesty dwoma palcami).
+  private _phonePlanH(): number {
+    if (!this._height) return SECTION_H;
+    return Math.round(Math.min(340, Math.max(SECTION_H, this._height * 0.36)));
   }
 
   // Wysokość obszaru pod nagłówkiem w układzie szerokim (minimum jak na niskim laptopie).
@@ -1271,13 +1374,15 @@ export class KageHomeCard extends LitElement {
       </button>`;
     }
 
-    const changed = this._zoom !== 1 || this._rot !== 0;
+    const changed = this._zoom !== 1 || this._rot !== 0 || this._tx !== 0 || this._ty !== 0;
     return html`<section
       class="plan"
       style=${styleMap({
         height: `${sectionH}px`,
         "--zoom": String(this._zoom),
         "--rot": `${this._rot}deg`,
+        "--tx": `${this._tx}px`,
+        "--ty": `${this._ty}px`,
       })}
       @pointerdown=${(e: PointerEvent) => this._gestureDown(e)}
       @pointermove=${(e: PointerEvent) => this._gestureMove(e)}
@@ -1294,6 +1399,8 @@ export class KageHomeCard extends LitElement {
             @click=${() => {
               this._zoom = 1;
               this._rot = 0;
+              this._tx = 0;
+              this._ty = 0;
             }}
           >
             ${ICON.reset}
@@ -3124,9 +3231,8 @@ export class KageHomeCard extends LitElement {
       .view3d {
         position: absolute;
         inset: 0;
-        transform: scale(var(--zoom, 1));
-        transform-origin: 58% 45%;
-        transition: transform 0.08s linear;
+        transform: translate(var(--tx, 0px), var(--ty, 0px)) scale(var(--zoom, 1));
+        transform-origin: 0 0;
       }
       .view-reset {
         position: absolute;
