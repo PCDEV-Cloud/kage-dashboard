@@ -41,6 +41,7 @@ export const en: Strings = {
   lightsSome: "{on} OF {total} ON",
   allLights: "All lights",
   brightness: "Brightness",
+  position: "position",
   covers: {
     shade: "Shades",
     blind: "Blinds",

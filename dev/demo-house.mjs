@@ -41,31 +41,101 @@ export function demoHass(language = "en") {
 
   add("light.bathroom_lights", "bathroom", "on", {
     friendly_name: "Lights",
-    entity_id: ["light.bathroom_main", "light.bathroom_mirror", "light.bathroom_deco", "light.bathroom_shower"],
+    entity_id: [
+      "light.bathroom_main",
+      "light.bathroom_mirror",
+      "light.bathroom_deco",
+      "light.bathroom_shower",
+    ],
     supported_color_modes: ["onoff"],
   });
-  add("light.bathroom_main", "bathroom", "on", { friendly_name: "Main Light", supported_color_modes: ["onoff"] });
-  add("light.bathroom_mirror", "bathroom", "on", { friendly_name: "Mirror Light", supported_color_modes: ["onoff"] });
-  add("light.bathroom_deco", "bathroom", "off", { friendly_name: "Decoration Light", supported_color_modes: ["onoff"] });
-  add("light.bathroom_shower", "bathroom", "off", { friendly_name: "Shower Light", supported_color_modes: ["onoff"] });
-  add("climate.bathroom", "bathroom", "heat", { friendly_name: "Bathroom", current_temperature: 23.1, temperature: 24, hvac_action: "heating" });
+  add("light.bathroom_main", "bathroom", "on", {
+    friendly_name: "Main Light",
+    supported_color_modes: ["onoff"],
+  });
+  add("light.bathroom_mirror", "bathroom", "on", {
+    friendly_name: "Mirror Light",
+    supported_color_modes: ["onoff"],
+  });
+  add("light.bathroom_deco", "bathroom", "off", {
+    friendly_name: "Decoration Light",
+    supported_color_modes: ["onoff"],
+  });
+  add("light.bathroom_shower", "bathroom", "off", {
+    friendly_name: "Shower Light",
+    supported_color_modes: ["onoff"],
+  });
+  add("climate.bathroom", "bathroom", "heat", {
+    friendly_name: "Bathroom",
+    current_temperature: 23.1,
+    temperature: 24,
+    hvac_action: "heating",
+  });
 
-  add("cover.master_left", "master", "open", { friendly_name: "Left Blind", device_class: "shade", current_position: 100 });
-  add("cover.master_right", "master", "open", { friendly_name: "Right Blind", device_class: "shade", current_position: 20 });
-  add("cover.master_screen", "master", "closed", { friendly_name: "Screen", device_class: "shade", current_position: 0 });
-  add("climate.master", "master", "heat", { friendly_name: "Master Bedroom", current_temperature: 19.8, temperature: 20.5, hvac_action: "idle" });
+  add("cover.master_left", "master", "open", {
+    friendly_name: "Left Blind",
+    device_class: "shade",
+    current_position: 100,
+    supported_features: 15,
+  });
+  add("cover.master_right", "master", "open", {
+    friendly_name: "Right Blind",
+    device_class: "shade",
+    current_position: 20,
+    supported_features: 15,
+  });
+  add("cover.master_screen", "master", "closed", {
+    friendly_name: "Screen",
+    device_class: "shade",
+    current_position: 0,
+    supported_features: 3,
+  });
+  add("climate.master", "master", "heat", {
+    friendly_name: "Master Bedroom",
+    current_temperature: 19.8,
+    temperature: 20.5,
+    hvac_action: "idle",
+  });
   add("media_player.tv", "master", "idle", { friendly_name: "Apple TV" });
-  add("media_player.speaker_1", "master", "playing", { friendly_name: "HomePod Mini 1-1", media_title: "Nocturne in E-flat", media_artist: "Chopin" });
+  add("media_player.speaker_1", "master", "playing", {
+    friendly_name: "HomePod Mini 1-1",
+    media_title: "Nocturne in E-flat",
+    media_artist: "Chopin",
+  });
   add("media_player.speaker_2", "master", "paused", { friendly_name: "HomePod Mini 1-2" });
   add("sensor.master_humidity", "master", "47", { device_class: "humidity" });
 
-  add("climate.bedroom_2", "bedroom_2", "heat", { friendly_name: "Bedroom 2", current_temperature: 20.4, temperature: 21 });
-  add("climate.bedroom_3", "bedroom_3", "heat", { friendly_name: "Bedroom 3", current_temperature: 20.9, temperature: 21 });
-  add("light.wc_mirror", "wc", "off", { friendly_name: "WC Mirror Light", supported_color_modes: ["onoff"] });
+  add("climate.bedroom_2", "bedroom_2", "heat", {
+    friendly_name: "Bedroom 2",
+    current_temperature: 20.4,
+    temperature: 21,
+  });
+  add("climate.bedroom_3", "bedroom_3", "heat", {
+    friendly_name: "Bedroom 3",
+    current_temperature: 20.9,
+    temperature: 21,
+  });
+  add("light.wc_mirror", "wc", "off", {
+    friendly_name: "WC Mirror Light",
+    supported_color_modes: ["onoff"],
+  });
 
-  add("climate.heat_pump_dhw", "utility", "heat", { friendly_name: "Heat Pump DHW", current_temperature: 47, temperature: 50 });
-  add("binary_sensor.heat_pump_error", "utility", "off", { device_class: "problem", friendly_name: "Heat Pump Error" });
-  add("sensor.window_battery", "bedroom_3", "9", { device_class: "battery", friendly_name: "Window Sensor Battery" }, { entity_category: "diagnostic" });
+  add("climate.heat_pump_dhw", "utility", "heat", {
+    friendly_name: "Heat Pump DHW",
+    current_temperature: 47,
+    temperature: 50,
+  });
+  add("binary_sensor.heat_pump_error", "utility", "off", {
+    device_class: "problem",
+    friendly_name: "Heat Pump Error",
+  });
+  add(
+    "sensor.window_battery",
+    "bedroom_3",
+    "9",
+    { device_class: "battery", friendly_name: "Window Sensor Battery" },
+    { entity_category: "diagnostic" },
+  );
   add("camera.driveway", "driveway", "idle", { friendly_name: "Driveway Camera" });
   add("alarm_control_panel.home", "office", "disarmed", { friendly_name: "Alarm" });
   add("scene.movie", null, "unknown", { friendly_name: "Movie" });

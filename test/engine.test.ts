@@ -1,6 +1,7 @@
 import { buildHomeModel, isOutdoorFloor } from "../src/engine/model";
 import {
   brightnessPct,
+  canSetPosition,
   coverPosition,
   groupMembers,
   isProjectorScreen,
@@ -144,6 +145,22 @@ describe("cover kinds", () => {
       ["shutter", "cover.all_outer", ["cover.outer"]],
       ["curtain", null, ["cover.drape"]],
     ]);
+  });
+
+  it("knows which covers can be set to a position", () => {
+    const hass = makeHass("pl");
+    hass.states["cover.a"] = {
+      entity_id: "cover.a",
+      state: "open",
+      attributes: { supported_features: 15 },
+    };
+    hass.states["cover.b"] = {
+      entity_id: "cover.b",
+      state: "open",
+      attributes: { supported_features: 3 },
+    };
+    expect(canSetPosition(hass, "cover.a")).toBe(true);
+    expect(canSetPosition(hass, "cover.b")).toBe(false);
   });
 
   it("recognises screens by label or name", () => {

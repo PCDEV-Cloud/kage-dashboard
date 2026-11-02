@@ -11,9 +11,14 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(e.message));
-page.on("console", (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && errors.push(m.text()));
+page.on(
+  "console",
+  (m) => m.type() === "error" && !m.text().includes("ERR_TUNNEL") && errors.push(m.text()),
+);
 
-await page.setContent(`<!doctype html><html><body style="margin:0;background:#05060a"></body></html>`);
+await page.setContent(
+  `<!doctype html><html><body style="margin:0;background:#05060a"></body></html>`,
+);
 await page.addScriptTag({ content: bundle, type: "module" });
 await page.waitForFunction(() => customElements.get("kage-home-card"));
 await page.evaluate(`(${demoHass.toString()})`).catch(() => {});
@@ -32,7 +37,9 @@ await page.screenshot({ path: `${out}/1-home.png` });
 const click = async (selector) => {
   await page.evaluate((sel) => {
     const root = document.querySelector("kage-home-card").shadowRoot;
-    const el = [...root.querySelectorAll(sel.css)].find((e) => !sel.text || e.textContent.includes(sel.text));
+    const el = [...root.querySelectorAll(sel.css)].find(
+      (e) => !sel.text || e.textContent.includes(sel.text),
+    );
     el.click();
   }, selector);
   await page.waitForTimeout(900);

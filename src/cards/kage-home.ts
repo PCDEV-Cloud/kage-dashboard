@@ -4,6 +4,7 @@ import { format, languageOf, stringsFor, type Strings } from "../i18n";
 import {
   activeMedia,
   brightnessPct,
+  canSetPosition,
   controlCount,
   hasControls,
   coverPosition,
@@ -763,10 +764,37 @@ export class KageHomeCard extends LitElement {
         </span>
       </div>
       <div class="row bar-row">
-        <div class="bar"><i style=${styleMap({ width: `${pos}%` })}></i></div>
+        ${(g.all ? [g.all] : ids).every((id) => canSetPosition(h, id))
+          ? this._positionSlider(target, pos, label)
+          : html`<div class="bar"><i style=${styleMap({ width: `${pos}%` })}></i></div>`}
         ${ids.length > 1 ? this._listButton(`cover:${g.kind}`, ids.length) : nothing}
       </div>
     </div>`;
+  }
+
+  // Suwak pozycji osłony (0 = zamknięta, 100 = otwarta); rozkaz po puszczeniu suwaka.
+  private _positionSlider(target: string | string[], pos: number, label: string): TemplateResult {
+    return html`<input
+      class="slider cover"
+      type="range"
+      min="0"
+      max="100"
+      step="5"
+      .value=${String(pos)}
+      aria-label=${`${label}: ${this._t.position}`}
+      style=${styleMap({
+        background: `linear-gradient(90deg, var(--kage-accent) ${pos}%, rgba(255,255,255,.1) ${pos}%)`,
+      })}
+      @input=${(e: Event) => {
+        const el = e.target as HTMLInputElement;
+        el.style.background = `linear-gradient(90deg, var(--kage-accent) ${el.value}%, rgba(255,255,255,.1) ${el.value}%)`;
+      }}
+      @change=${(e: Event) =>
+        this._call("cover", "set_cover_position", {
+          entity_id: target,
+          position: Number((e.target as HTMLInputElement).value),
+        })}
+    />`;
   }
 
   private _climateControl(id: string) {
@@ -897,7 +925,10 @@ export class KageHomeCard extends LitElement {
     } else if (coverGroup) {
       rows = coverGroup.members.map((id) => {
         const p = coverPosition(h, id);
-        return html`<div class="lrow">
+        const slider = canSetPosition(h, id)
+          ? this._positionSlider(id, p, this._name(id, area))
+          : nothing;
+        return html`<div class="lrow cover-row">
           <span class="lname">${this._name(id, area)}</span>
           <span class="mono small"
             >${p === 0 ? t.closed : p === 100 ? t.open : format(t.openPct, { n: p })}</span
@@ -918,6 +949,7 @@ export class KageHomeCard extends LitElement {
               ${ICON.down}
             </button>
           </span>
+          ${slider}
         </div>`;
       });
     } else if (kind === "climates") {
@@ -1606,6 +1638,27 @@ export class KageHomeCard extends LitElement {
         border: 2px solid var(--kage-light);
         border-radius: 0;
         transform: rotate(45deg);
+      }
+      .slider.cover::-webkit-slider-thumb {
+        border-color: var(--kage-accent);
+        box-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
+      }
+      .slider.cover::-moz-range-thumb {
+        border-color: var(--kage-accent);
+      }
+      .tile.screen .slider.cover::-webkit-slider-thumb {
+        border-color: var(--kage-scene, #ff2bd6);
+        box-shadow: 0 0 10px rgba(255, 43, 214, 0.7);
+      }
+      .bar-row .slider {
+        flex: 1;
+      }
+      .cover-row {
+        flex-wrap: wrap;
+      }
+      .cover-row .slider {
+        flex-basis: 100%;
+        margin: 2px 0 16px;
       }
       .spacer {
         height: 6px;

@@ -37,6 +37,7 @@ export interface Strings {
   lightsSome: string; // {on} {total}
   allLights: string;
   brightness: string;
+  position: string;
   // Kafel osłon okien według klasy urządzenia w HA.
   covers: Record<
     "shade" | "blind" | "shutter" | "curtain" | "awning" | "window" | "other" | "screen",

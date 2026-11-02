@@ -25,8 +25,12 @@ const result = await page.evaluate(async () => {
     states: {},
     callWS: async () => [],
   };
-  const dash = await customElements.get("ll-strategy-dashboard-kage").generate({ type: "custom:kage" }, hass);
-  const view = await customElements.get("ll-strategy-view-kage").generate(dash.views[0].strategy, hass);
+  const dash = await customElements
+    .get("ll-strategy-dashboard-kage")
+    .generate({ type: "custom:kage" }, hass);
+  const view = await customElements
+    .get("ll-strategy-view-kage")
+    .generate(dash.views[0].strategy, hass);
   return { dash, view, registered: window.customStrategies };
 });
 
@@ -36,5 +40,11 @@ const ok =
   result.dash.views[0].strategy.type === "custom:kage" &&
   result.view.sections.length >= 2 &&
   !logs.some((l) => l.startsWith("ERROR"));
-console.log(JSON.stringify({ ok, logs, views: result.dash.views.length, sections: result.view.sections.length }, null, 2));
+console.log(
+  JSON.stringify(
+    { ok, logs, views: result.dash.views.length, sections: result.view.sections.length },
+    null,
+    2,
+  ),
+);
 process.exit(ok ? 0 : 1);

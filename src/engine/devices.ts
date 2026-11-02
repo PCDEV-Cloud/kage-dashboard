@@ -208,6 +208,14 @@ export function isDimmable(hass: HomeAssistant, id: string): boolean {
   return Array.isArray(modes) && modes.some((m) => m !== "onoff");
 }
 
+// Czy osłonę można ustawić w dowolnej pozycji (CoverEntityFeature.SET_POSITION = 4).
+export const COVER_SET_POSITION = 4;
+
+export function canSetPosition(hass: HomeAssistant, id: string): boolean {
+  const f = hass.states[id]?.attributes.supported_features;
+  return typeof f === "number" && (f & COVER_SET_POSITION) !== 0;
+}
+
 // Pozycja rolety 0–100 (100 = otwarta).
 export function coverPosition(hass: HomeAssistant, id: string): number {
   const s = hass.states[id];
