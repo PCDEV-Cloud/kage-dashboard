@@ -6,11 +6,14 @@ import {
   brightnessPct,
   canSetPosition,
   canStop,
+  climateIsOff,
+  climatePower,
   controlCount,
   hasControls,
   coverPosition,
   isDimmable,
   isOn,
+  mediaCaps,
   roomClimate,
   roomControls,
   roomGlow,
@@ -161,6 +164,19 @@ const ICON = {
   >
     <path d="M6 6l12 12"></path>
     <path d="M18 6L6 18"></path>
+  </svg>`,
+  power: html`<svg
+    width="15"
+    height="15"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.4"
+    stroke-linecap="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3v8"></path>
+    <path d="M6.3 7.2a8 8 0 1 0 11.4 0"></path>
   </svg>`,
   play: html`<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
     <path d="M8 5l11 7-11 7z"></path>
@@ -1076,9 +1092,12 @@ export class KageHomeCard extends LitElement {
     const step =
       typeof s?.attributes.target_temp_step === "number" ? s.attributes.target_temp_step : 0.5;
     const heating = s?.attributes.hvac_action === "heating";
+    const off = climateIsOff(h, id);
     const set = (v: number) =>
       this._call("climate", "set_temperature", { entity_id: id, temperature: v });
-    return { target, current, step, heating, set };
+    const power = climatePower(h, id, off);
+    const toggle = power ? () => this._call("climate", power.service, power.data) : null;
+    return { target, current, step, heating, off, set, toggle };
   }
 
   private _climateTitle(id: string): string {
@@ -1089,21 +1108,41 @@ export class KageHomeCard extends LitElement {
       : this._t.heating;
   }
 
+  private _powerButton(on: boolean, toggle: (() => void) | null, cls = ""): TemplateResult {
+    if (!toggle) return html``;
+    const t = this._t;
+    return html`<button
+      class="pw cut-s ctl ${cls} ${on ? "on" : ""}"
+      aria-pressed=${on ? "true" : "false"}
+      aria-label=${on ? t.actTurnOff : t.turnOn}
+      @click=${toggle}
+    >
+      ${ICON.power}
+    </button>`;
+  }
+
+  private _climateState(c: ReturnType<KageHomeCard["_climateControl"]>): string {
+    const t = this._t;
+    const now = c.current !== null ? this._fmtTemp(c.current) : "—";
+    if (c.off) return `${t.stateOff} · ${now}`;
+    return format(c.heating ? t.heatingNow : t.holdingNow, { t: now });
+  }
+
   private _climateTile(ids: string[]): TemplateResult {
     const t = this._t;
     const c = this._climateControl(ids[0]);
-    const now = c.current !== null ? this._fmtTemp(c.current) : "—";
-    return html`<div class="tile cut-s clim">
+    return html`<div class="tile cut-s clim ${c.off ? "off" : ""}">
       <div class="tile-head">
         <span class="tt">
           <span class="name ellipsis">${this._climateTitle(ids[0])}</span>
-          <span class="st mono ${c.heating ? "warm" : ""}"
-            >${format(c.heating ? t.heatingNow : t.holdingNow, { t: now })}</span
-          >
+          <span class="st mono ellipsis ${c.heating ? "warm" : ""}">${this._climateState(c)}</span>
         </span>
-        ${ids.length > 1 ? this._listButton("climates", ids.length) : nothing}
+        <span class="row head-btns">
+          ${this._powerButton(!c.off, c.toggle)}
+          ${ids.length > 1 ? this._listButton("climates", ids.length) : nothing}
+        </span>
       </div>
-      ${c.target !== null
+      ${c.target !== null && !c.off
         ? html`<div class="row between">
             <button
               class="sq cut-s ctl"
@@ -1125,19 +1164,63 @@ export class KageHomeCard extends LitElement {
     </div>`;
   }
 
+  // Sterowanie odtwarzaczem: zasilanie, głośność, play/pauza (tylko gdy jest co wznowić).
+  private _mediaControls(id: string, compact = false): TemplateResult {
+    const t = this._t;
+    const caps = mediaCaps(this.hass!, id);
+    const playing = this.hass!.states[id]?.state === "playing";
+    const call = (service: string) => this._call("media_player", service, { entity_id: id });
+    return html`<span class="row media-btns">
+      ${caps.canPower
+        ? this._powerButton(!caps.off, () => call(caps.off ? "turn_on" : "turn_off"), "media")
+        : nothing}
+      ${caps.canVolume
+        ? html`<button
+              class="sq cut-s ctl m"
+              aria-label=${t.volumeDown}
+              @click=${() => call("volume_down")}
+            >
+              −
+            </button>
+            <button
+              class="sq cut-s ctl m"
+              aria-label=${t.volumeUp}
+              @click=${() => call("volume_up")}
+            >
+              +
+            </button>`
+        : nothing}
+      ${caps.canPlayPause
+        ? html`<button
+            class="play cut-s ctl ${compact ? "small" : ""}"
+            aria-label=${playing ? t.pause : t.play}
+            @click=${() => call("media_play_pause")}
+          >
+            ${playing ? ICON.pause : ICON.play}
+          </button>`
+        : nothing}
+    </span>`;
+  }
+
   private _mediaTile(ids: string[]): TemplateResult {
     const t = this._t;
     const h = this.hass!;
     const id = activeMedia(h, ids)!;
     const s = h.states[id];
+    const caps = mediaCaps(h, id);
     const playing = s?.state === "playing";
-    const title =
-      (typeof s?.attributes.media_title === "string" && s.attributes.media_title) ||
-      (playing ? String(s?.attributes.friendly_name ?? "") : t.nothingPlaying);
-    const sub = [s?.attributes.media_artist, s?.attributes.friendly_name]
-      .filter((x) => typeof x === "string" && x)
-      .join(" · ");
-    return html`<div class="tile cut-s media ${playing ? "playing" : ""}">
+    const name = String(s?.attributes.friendly_name ?? "");
+    const mediaTitle =
+      typeof s?.attributes.media_title === "string" ? s.attributes.media_title : "";
+    const title = caps.off ? name : mediaTitle || (playing ? name : t.nothingPlaying);
+    const sub = caps.off
+      ? t.stateOff
+      : [s?.attributes.media_artist, mediaTitle || !playing ? name : null]
+          .filter((x) => typeof x === "string" && x)
+          .join(" · ");
+    return html`<div
+      class="tile cut-s media wide ${playing ? "playing" : ""} ${caps.off ? "off" : ""}"
+    >
       <div class="tile-head">
         <span class="tt">
           <span class="name ellipsis">${title}</span>
@@ -1149,13 +1232,7 @@ export class KageHomeCard extends LitElement {
         <span class="eq ${playing ? "" : "paused"}" aria-hidden="true"
           ><i></i><i></i><i></i><i></i
         ></span>
-        <button
-          class="play cut-s ctl"
-          aria-label=${playing ? t.pause : t.play}
-          @click=${() => this._call("media_player", "media_play_pause", { entity_id: id })}
-        >
-          ${playing ? ICON.pause : ICON.play}
-        </button>
+        ${this._mediaControls(id)}
       </div>
     </div>`;
   }
@@ -1207,7 +1284,8 @@ export class KageHomeCard extends LitElement {
         const cc = this._climateControl(id);
         return html`<div class="lrow">
           <span class="lname">${this._name(id, area)}</span>
-          ${cc.target !== null
+          ${this._powerButton(!cc.off, cc.toggle)}
+          ${cc.target !== null && !cc.off
             ? html`<span class="row clim">
                 <button
                   class="sq cut-s ctl"
@@ -1225,21 +1303,16 @@ export class KageHomeCard extends LitElement {
                   +
                 </button>
               </span>`
-            : html`<span class="mono small">${h.states[id]?.state ?? ""}</span>`}
+            : html`<span class="mono small"
+                >${cc.off ? t.stateOff : (h.states[id]?.state ?? "")}</span
+              >`}
         </div>`;
       });
     } else if (kind === "media") {
       rows = c.media.map((id) => {
-        const playing = h.states[id]?.state === "playing";
         return html`<div class="lrow">
           <span class="lname">${this._name(id, area)}</span>
-          <button
-            class="play cut-s ctl"
-            aria-label=${playing ? t.pause : t.play}
-            @click=${() => this._call("media_player", "media_play_pause", { entity_id: id })}
-          >
-            ${playing ? ICON.pause : ICON.play}
-          </button>
+          ${this._mediaControls(id, true)}
         </div>`;
       });
     }
@@ -1958,6 +2031,50 @@ export class KageHomeCard extends LitElement {
       }
       .eq.paused i {
         animation-play-state: paused;
+      }
+      .tile.wide {
+        grid-column: 1 / -1;
+      }
+      .head-btns,
+      .media-btns {
+        gap: 6px;
+        flex: none;
+      }
+      .pw {
+        width: 34px;
+        height: 30px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(159, 176, 198, 0.35);
+        background: transparent;
+        color: var(--kage-ink-dim);
+        flex: none;
+      }
+      .pw.on {
+        border-color: rgba(61, 255, 162, 0.55);
+        background: rgba(61, 255, 162, 0.12);
+        color: var(--kage-climate);
+        box-shadow: 0 0 10px rgba(61, 255, 162, 0.25);
+      }
+      .pw.media.on {
+        border-color: rgba(255, 43, 214, 0.55);
+        background: rgba(255, 43, 214, 0.12);
+        color: var(--kage-scene);
+        box-shadow: 0 0 10px rgba(255, 43, 214, 0.25);
+      }
+      .sq.m {
+        border-color: rgba(255, 43, 214, 0.45);
+        background: rgba(255, 43, 214, 0.08);
+        color: var(--kage-scene);
+      }
+      .tile.off .name {
+        color: var(--kage-ink-muted);
+      }
+      .play.small {
+        width: 34px;
+        height: 30px;
       }
       .play {
         width: 38px;

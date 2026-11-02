@@ -286,6 +286,64 @@ export function roomClimate(
 }
 
 // Odtwarzacz do pokazania: grający, a jeśli żaden nie gra, pierwszy.
+// Odtwarzacz do pokazania: grający, potem wstrzymany, potem włączony, na końcu pierwszy.
 export function activeMedia(hass: HomeAssistant, ids: string[]): string | null {
-  return ids.find((id) => hass.states[id]?.state === "playing") ?? ids[0] ?? null;
+  const rank = (id: string) => {
+    const st = hass.states[id]?.state;
+    return st === "playing" ? 0 : st === "paused" ? 1 : st && !MEDIA_OFF.has(st) ? 2 : 3;
+  };
+  return ids.slice().sort((a, b) => rank(a) - rank(b))[0] ?? null;
+}
+
+const MEDIA_OFF = new Set(["off", "standby", "unavailable", "unknown"]);
+
+const features = (hass: HomeAssistant, id: string) => {
+  const f = hass.states[id]?.attributes.supported_features;
+  return typeof f === "number" ? f : 0;
+};
+
+// MediaPlayerEntityFeature: PAUSE 1, VOLUME_SET 4, TURN_ON 128, TURN_OFF 256,
+// VOLUME_STEP 1024, PLAY 16384.
+export interface MediaCaps {
+  off: boolean;
+  canPower: boolean;
+  canVolume: boolean;
+  canPlayPause: boolean; // jest co wznowić albo wstrzymać
+}
+
+export function mediaCaps(hass: HomeAssistant, id: string): MediaCaps {
+  const f = features(hass, id);
+  const st = hass.states[id]?.state ?? "off";
+  const off = MEDIA_OFF.has(st);
+  return {
+    off,
+    canPower: (f & (128 | 256)) !== 0,
+    canVolume: !off && (f & (4 | 1024)) !== 0,
+    canPlayPause: (st === "playing" || st === "paused") && (f & (1 | 16384)) !== 0,
+  };
+}
+
+// Włączanie i wyłączanie termostatu. Gdy brak turn_on/turn_off (ClimateEntityFeature
+// TURN_ON 128, TURN_OFF 256), przełączamy tryb: off ↔ pierwszy tryb grzania z listy.
+export function climateIsOff(hass: HomeAssistant, id: string): boolean {
+  return hass.states[id]?.state === "off";
+}
+
+export function climatePower(
+  hass: HomeAssistant,
+  id: string,
+  on: boolean,
+): { service: string; data: Record<string, unknown> } | null {
+  const f = features(hass, id);
+  const modes = hass.states[id]?.attributes.hvac_modes;
+  const list = Array.isArray(modes) ? (modes as string[]) : [];
+  if (!on) {
+    if (f & 256) return { service: "turn_off", data: { entity_id: id } };
+    if (list.includes("off"))
+      return { service: "set_hvac_mode", data: { entity_id: id, hvac_mode: "off" } };
+    return null;
+  }
+  if (f & 128) return { service: "turn_on", data: { entity_id: id } };
+  const mode = ["heat", "auto", "heat_cool", "cool"].find((m) => list.includes(m));
+  return mode ? { service: "set_hvac_mode", data: { entity_id: id, hvac_mode: mode } } : null;
 }

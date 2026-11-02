@@ -95,14 +95,23 @@ export function demoHass(language = "en") {
     current_temperature: 19.8,
     temperature: 20.5,
     hvac_action: "idle",
+    hvac_modes: ["off", "heat"],
+    supported_features: 1 | 128 | 256,
   });
-  add("media_player.tv", "master", "idle", { friendly_name: "Apple TV" });
+  add("media_player.tv", "master", "standby", {
+    friendly_name: "Apple TV",
+    supported_features: 1 | 128 | 256 | 1024 | 16384,
+  });
   add("media_player.speaker_1", "master", "playing", {
     friendly_name: "HomePod Mini 1-1",
     media_title: "Nocturne in E-flat",
     media_artist: "Chopin",
+    supported_features: 1 | 4 | 128 | 256 | 1024 | 16384,
   });
-  add("media_player.speaker_2", "master", "paused", { friendly_name: "HomePod Mini 1-2" });
+  add("media_player.speaker_2", "master", "paused", {
+    friendly_name: "HomePod Mini 1-2",
+    supported_features: 1 | 4 | 1024 | 16384,
+  });
   add("sensor.master_humidity", "master", "47", { device_class: "humidity" });
 
   add("climate.bedroom_2", "bedroom_2", "heat", {

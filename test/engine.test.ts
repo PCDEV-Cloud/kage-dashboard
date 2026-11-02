@@ -1,8 +1,12 @@
 import { buildHomeModel, isOutdoorFloor } from "../src/engine/model";
 import {
   brightnessPct,
+  activeMedia,
   canSetPosition,
+  climateIsOff,
+  climatePower,
   coverPosition,
+  mediaCaps,
   groupMembers,
   isProjectorScreen,
   roomClimate,
@@ -76,6 +80,51 @@ describe("roomControls", () => {
     expect(brightnessPct(hass, "light.all")).toBe(50);
     expect(coverPosition(hass, "cover.screen")).toBe(0);
     expect(c.media).toEqual(["media_player.speaker", "media_player.tv"]);
+  });
+});
+
+describe("media and climate controls", () => {
+  it("offers play only when there is something to resume", () => {
+    const hass = makeHass("pl");
+    const set = (id: string, state: string, f: number) =>
+      (hass.states[id] = { entity_id: id, state, attributes: { supported_features: f } });
+    set("media_player.tv", "idle", 1 | 128 | 256 | 1024 | 16384);
+    expect(mediaCaps(hass, "media_player.tv")).toEqual({
+      off: false,
+      canPower: true,
+      canVolume: true,
+      canPlayPause: false,
+    });
+    set("media_player.tv", "standby", 1 | 128 | 256 | 1024);
+    expect(mediaCaps(hass, "media_player.tv")).toMatchObject({ off: true, canVolume: false });
+    set("media_player.speaker", "paused", 1 | 4 | 16384);
+    expect(mediaCaps(hass, "media_player.speaker").canPlayPause).toBe(true);
+    expect(activeMedia(hass, ["media_player.tv", "media_player.speaker"])).toBe(
+      "media_player.speaker",
+    );
+  });
+
+  it("turns heating off and on with services or hvac modes", () => {
+    const hass = makeHass("pl");
+    hass.states["climate.a"] = {
+      entity_id: "climate.a",
+      state: "heat",
+      attributes: { supported_features: 1 | 128 | 256 },
+    };
+    hass.states["climate.b"] = {
+      entity_id: "climate.b",
+      state: "off",
+      attributes: { supported_features: 1, hvac_modes: ["off", "auto", "heat"] },
+    };
+    expect(climatePower(hass, "climate.a", false)).toEqual({
+      service: "turn_off",
+      data: { entity_id: "climate.a" },
+    });
+    expect(climateIsOff(hass, "climate.b")).toBe(true);
+    expect(climatePower(hass, "climate.b", true)).toEqual({
+      service: "set_hvac_mode",
+      data: { entity_id: "climate.b", hvac_mode: "heat" },
+    });
   });
 });
 

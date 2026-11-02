@@ -86,6 +86,9 @@ export interface Strings {
     outlets: string; // {n}
     power: string; // {v}
   };
+  turnOn: string;
+  volumeDown: string;
+  volumeUp: string;
   actTurnOff: string;
   actArm: string;
   actCloseValve: string;

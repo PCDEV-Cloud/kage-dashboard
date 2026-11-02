@@ -48,6 +48,9 @@ const click = async (selector) => {
 await click({ css: ".floor-card", text: "FIRST FLOOR" });
 await click({ css: ".room-chip, .tag", text: "Master Bedroom" });
 await page.screenshot({ path: `${out}/2-master.png` });
+await click({ css: ".tile.media .more" });
+await page.screenshot({ path: `${out}/2b-media-list.png` });
+await click({ css: ".back" });
 await click({ css: ".tile.blind .more" });
 await page.screenshot({ path: `${out}/3-blinds-list.png` });
 await click({ css: ".back" });
