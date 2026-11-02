@@ -57,6 +57,36 @@ await click({ css: ".floor-card", text: "GROUND FLOOR" });
 await click({ css: ".side" });
 await page.screenshot({ path: `${out}/5-outdoors.png` });
 
+// Poza domem: osoba zalogowanego użytkownika wychodzi, w domu zostaje Jo.
+const setStates = async (changes) => {
+  await page.evaluate((changes) => {
+    const card = document.querySelector("kage-home-card");
+    const h = card.hass;
+    const states = { ...h.states };
+    for (const [id, state] of Object.entries(changes)) states[id] = { ...states[id], state };
+    window.__hass = { ...h, states, callService: h.callService, calls: h.calls };
+    card.hass = window.__hass;
+  }, changes);
+  await page.waitForTimeout(700);
+};
+await setStates({ "person.demo": "not_home" });
+await page.screenshot({ path: `${out}/6-away.png`, fullPage: true });
+await click({ css: ".secure" });
+await page.screenshot({ path: `${out}/7-secure.png`, fullPage: true });
+await setStates({
+  "light.bathroom_lights": "off",
+  "light.bathroom_main": "off",
+  "light.bathroom_mirror": "off",
+  "binary_sensor.bedroom_2_window": "off",
+  "alarm_control_panel.home": "armed_away",
+  "switch.kitchen_socket": "off",
+  "sensor.house_power": "120",
+  "person.jo": "not_home",
+});
+await page.screenshot({ path: `${out}/8-away-ok.png`, fullPage: true });
+await setStates({ "binary_sensor.utility_leak": "on" });
+await page.screenshot({ path: `${out}/9-leak.png`, fullPage: true });
+
 const calls = await page.evaluate(() => window.__hass.calls);
 await browser.close();
 console.log(JSON.stringify({ errors, calls }, null, 2));

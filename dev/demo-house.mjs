@@ -138,6 +138,40 @@ export function demoHass(language = "en") {
   );
   add("camera.driveway", "driveway", "idle", { friendly_name: "Driveway Camera" });
   add("alarm_control_panel.home", "office", "disarmed", { friendly_name: "Alarm" });
+  // Poza domem: obecność, otwarcia, woda, prąd, brama.
+  add("person.demo", null, "home", { friendly_name: "Demo", user_id: "demo" });
+  add("person.jo", null, "home", { friendly_name: "Jo", user_id: "jo" });
+  add("binary_sensor.bedroom_2_window", "bedroom_2", "on", {
+    device_class: "window",
+    friendly_name: "Window",
+  });
+  add("binary_sensor.terrace_door", "living", "off", {
+    device_class: "door",
+    friendly_name: "Terrace Door",
+  });
+  add("binary_sensor.utility_leak", "utility", "off", {
+    device_class: "moisture",
+    friendly_name: "Leak Sensor",
+  });
+  add("valve.main_water", "utility", "open", {
+    device_class: "water",
+    friendly_name: "Main Water",
+  });
+  add("cover.driveway_gate", "driveway", "closed", { device_class: "gate", friendly_name: "Gate" });
+  add("switch.kitchen_socket", "kitchen", "on", {
+    device_class: "outlet",
+    friendly_name: "Coffee Socket",
+  });
+  add("sensor.house_power", null, "640", {
+    device_class: "power",
+    unit_of_measurement: "W",
+    friendly_name: "House Power",
+  });
+  add("sensor.water_pressure", "utility", "2.4", {
+    device_class: "pressure",
+    unit_of_measurement: "bar",
+    friendly_name: "Water Pressure",
+  });
   add("scene.movie", null, "unknown", { friendly_name: "Movie" });
   add("scene.dinner", null, "unknown", { friendly_name: "Dinner" });
   add("scene.cleaning", null, "unknown", { friendly_name: "Cleaning" });

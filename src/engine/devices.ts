@@ -1,3 +1,4 @@
+import { isHotWater } from "./hotwater";
 import { domainOf, type AreaModel } from "./model";
 import type { HassEntityState, HomeAssistant } from "../types";
 
@@ -147,7 +148,9 @@ export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls
       return !(typeof cls === "string" && NON_ROOM_COVER_CLASSES.has(cls));
     }),
   );
-  const climates = area.entityIds.filter((id) => domainOf(id) === "climate" && available(hass, id));
+  const climates = area.entityIds.filter(
+    (id) => domainOf(id) === "climate" && available(hass, id) && !isHotWater(hass, id),
+  );
   const media = area.entityIds.filter(
     (id) => domainOf(id) === "media_player" && available(hass, id),
   );
@@ -266,7 +269,7 @@ export function roomClimate(
     const s = hass.states[id];
     if (!s) continue;
     const d = domainOf(id);
-    if (d === "climate") {
+    if (d === "climate" && !isHotWater(hass, id)) {
       const t = numberAttr(s, "current_temperature");
       if (climateTemp === null && isAir(t)) climateTemp = t;
       if (humidity === null) humidity = numberAttr(s, "current_humidity");

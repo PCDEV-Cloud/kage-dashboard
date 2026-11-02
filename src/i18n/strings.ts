@@ -66,4 +66,45 @@ export interface Strings {
   back: string;
   scenes: string;
   moveTo: string; // {x}
+
+  // Ekran „Poza domem”
+  ctxAway: string;
+  verdictOk: string;
+  verdictIssues: PluralForms; // {n}
+  issue: {
+    leak: string;
+    smoke: string;
+    gas: string;
+    alarmTriggered: string;
+    waterFlow: string;
+    gateOpen: string;
+    opening: string; // {n}
+    alarmOff: string;
+    hotWater: string;
+    pressure: string;
+    lights: string; // {n}
+    outlets: string; // {n}
+    power: string; // {v}
+  };
+  actTurnOff: string;
+  actArm: string;
+  actCloseValve: string;
+  actClose: string;
+  hold: string;
+  secureHome: string;
+  secureHint: string;
+  secureNothing: string;
+  secureRun: string;
+  secureDone: string;
+  cancel: string;
+  step: {
+    lights: string; // {n}
+    alarm: string;
+    valve: string;
+    gate: string;
+  };
+  peopleAtHome: string;
+  nobodyHome: string;
+  showRooms: string;
+  backToOverview: string;
 }

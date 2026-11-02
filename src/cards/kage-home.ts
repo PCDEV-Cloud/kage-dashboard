@@ -1,6 +1,6 @@
 import { LitElement, css, html, nothing, type TemplateResult } from "lit";
 import { styleMap } from "lit/directives/style-map.js";
-import { format, languageOf, stringsFor, type Strings } from "../i18n";
+import { format, languageOf, plural, stringsFor, type Strings } from "../i18n";
 import {
   activeMedia,
   brightnessPct,
@@ -20,7 +20,16 @@ import {
   type RoomControls,
 } from "../engine/devices";
 import { callService } from "../engine/calls";
+import {
+  findIssues,
+  secureSteps,
+  worstSeverity,
+  type Issue,
+  type IssueAction,
+  type SecureStep,
+} from "../engine/issues";
 import { autoLayout } from "../engine/layout";
+import { contextFor, contextOverride, peopleHome, type Context } from "../engine/presence";
 import { buildHomeModel, type AreaModel, type FloorModel, type HomeModel } from "../engine/model";
 import { findTodos } from "../engine/todos";
 import type { FloorEntry, HomeAssistant } from "../types";
@@ -35,6 +44,9 @@ const SECTION_H = 232;
 const MAX_TAGS = 5; // więcej pokoi: etykieta tylko wybranego, wybór z paska pod rzutem
 
 type Expanded = "lights" | "climates" | "media" | `cover:${CoverKind}` | null;
+
+// Przytrzymanie dla akcji fizycznych (brama, furtka, zawór wody).
+const HOLD_MS = 1100;
 
 const ICON = {
   bulb: html`<svg
@@ -109,6 +121,20 @@ const ICON = {
   >
     <path d="M9 5l7 7-7 7"></path>
   </svg>`,
+  alert: html`<svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2.2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M12 3l9.5 17h-19z"></path>
+    <path d="M12 10v4.5M12 17.5v.01"></path>
+  </svg>`,
   shield: html`<svg
     width="13"
     height="13"
@@ -172,6 +198,11 @@ export class KageHomeCard extends LitElement {
     _dismissed: { state: true },
     _sceneFlash: { state: true },
     _fetchedFloors: { state: true },
+    _showRooms: { state: true },
+    _securing: { state: true },
+    _secureOff: { state: true },
+    _secureDone: { state: true },
+    _holding: { state: true },
   };
 
   hass?: HomeAssistant;
@@ -182,6 +213,13 @@ export class KageHomeCard extends LitElement {
   private _sceneFlash: string | null = null;
   private _fetchedFloors: FloorEntry[] | null = null;
   private _restored = false;
+  // „Poza domem”: podgląd pomieszczeń zamiast przeglądu, okno „Zabezpiecz dom”.
+  private _showRooms = false;
+  private _securing = false;
+  private _secureOff: string[] = [];
+  private _secureDone = false;
+  private _holding: string | null = null;
+  private _holdTimer?: ReturnType<typeof setTimeout>;
   private _cache?: { key: unknown[]; model: HomeModel };
 
   setConfig(): void {}
@@ -318,6 +356,9 @@ export class KageHomeCard extends LitElement {
       return html`<div class="screen"><p class="empty">${t.emptyHome}</p></div>`;
     }
 
+    const ctx = this._context();
+    if (ctx === "away" && !this._showRooms) return this._renderAway();
+
     let floor = floors.find((f) => f.id === this._floorId) ?? null;
     if (!floor) {
       const byRoom = floors.find((f) => f.areas.some((a) => a.id === this._roomId));
@@ -329,14 +370,30 @@ export class KageHomeCard extends LitElement {
     return html`
       <div class="screen">
         <div class="scan" aria-hidden="true"></div>
-        ${this._renderHeader(floor)} ${this._renderTodos()} ${this._renderPlan(model, floor, room)}
+        ${this._renderHeader(floor, ctx)}
+        ${ctx === "away"
+          ? html`<button class="back mono rise" @click=${() => (this._showRooms = false)}>
+              ${ICON.left} ${t.backToOverview}
+            </button>`
+          : this._renderTodos()}
+        ${this._renderPlan(model, floor, room)}
         ${floor.areas.length > MAX_TAGS ? this._renderRoomStrip(floor, room) : nothing}
         ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}
       </div>
     `;
   }
 
-  private _renderHeader(floor: FloorModel): TemplateResult {
+  private _context(): Context {
+    let override: Context | null = null;
+    try {
+      override = contextOverride(window.location.search);
+    } catch {
+      /* poza przeglądarką */
+    }
+    return contextFor(this.hass!, override);
+  }
+
+  private _renderHeader(floor: FloorModel | null, ctx: Context = "home"): TemplateResult {
     const t = this._t;
     const alarmId = Object.keys(this.hass!.states).find((id) =>
       id.startsWith("alarm_control_panel."),
@@ -362,14 +419,209 @@ export class KageHomeCard extends LitElement {
     return html`
       <header class="head rise">
         <div class="ctx mono">
-          <span class="here-dot" aria-hidden="true"></span>
-          <span>${t.ctxHome}</span>
-          <span class="sep">//</span>
-          <span class="muted">${floor.name.toLocaleUpperCase(this._lang)}</span>
+          <span class="here-dot ${ctx}" aria-hidden="true"></span>
+          <span>${ctx === "away" ? t.ctxAway : t.ctxHome}</span>
+          ${floor
+            ? html`<span class="sep">//</span>
+                <span class="muted">${floor.name.toLocaleUpperCase(this._lang)}</span>`
+            : nothing}
         </div>
         ${alarm}
       </header>
     `;
+  }
+
+  // --- Poza domem ---
+
+  private _issueTitle(i: Issue): string {
+    const t = this._t;
+    switch (i.kind) {
+      case "battery":
+        return i.value !== null
+          ? format(t.todoBattery, { n: Math.round(i.value) })
+          : t.todoBatteryLow;
+      case "problem":
+        return t.todoProblem;
+      case "power":
+        return format(t.issue.power, { v: `${i.value ?? 0} W` });
+      default:
+        return format(t.issue[i.kind], { n: i.entityIds.length });
+    }
+  }
+
+  private _actionLabel(a: IssueAction): string {
+    const t = this._t;
+    if (a.domain === "valve") return t.actCloseValve;
+    if (a.domain === "alarm_control_panel") return t.actArm;
+    if (a.domain === "cover") return t.actClose;
+    return t.actTurnOff;
+  }
+
+  private _run(a: IssueAction): void {
+    this._call(a.domain, a.service, { entity_id: a.entityIds });
+  }
+
+  // Przycisk z przytrzymaniem 1,1 s dla akcji fizycznych (brama, zawór). Puszczenie wcześniej
+  // nic nie robi. Klawiatura: przytrzymanie Spacji albo Entera.
+  private _holdButton(key: string, label: string, onDone: () => void, cls = ""): TemplateResult {
+    const t = this._t;
+    const start = () => {
+      if (this._holding) return;
+      this._holding = key;
+      this._holdTimer = setTimeout(() => {
+        this._holding = null;
+        onDone();
+      }, HOLD_MS);
+    };
+    const stop = () => {
+      if (this._holding !== key) return;
+      clearTimeout(this._holdTimer);
+      this._holding = null;
+    };
+    return html`<button
+      class="hold cut-s ctl ${cls} ${this._holding === key ? "holding" : ""}"
+      aria-label=${`${label} (${t.hold})`}
+      @pointerdown=${start}
+      @pointerup=${stop}
+      @pointerleave=${stop}
+      @pointercancel=${stop}
+      @keydown=${(e: KeyboardEvent) => (e.key === " " || e.key === "Enter") && !e.repeat && start()}
+      @keyup=${stop}
+      @contextmenu=${(e: Event) => e.preventDefault()}
+    >
+      <span class="fill" aria-hidden="true"></span>
+      <span class="lbl">${label}</span>
+      <span class="sub mono">${t.hold}</span>
+    </button>`;
+  }
+
+  private _actionButton(i: Issue): TemplateResult | typeof nothing {
+    const a = i.action;
+    if (!a) return nothing;
+    const label = this._actionLabel(a);
+    return a.hold
+      ? this._holdButton(`issue:${i.id}`, label, () => this._run(a), "small")
+      : html`<button class="act cut-s ctl" @click=${() => this._run(a)}>${label}</button>`;
+  }
+
+  private _renderAway(): TemplateResult {
+    const t = this._t;
+    const h = this.hass!;
+    const issues = findIssues(h);
+    // Werdykt liczy tylko sprawy pilne i ważne; drobne (baterie) nie zmieniają „w porządku”.
+    const urgent = issues.filter((i) => i.severity !== "info");
+    const worst = worstSeverity(urgent);
+    const steps = secureSteps(issues, h);
+    const people = peopleHome(h);
+    const verdict = worst
+      ? format(plural(this._lang, urgent.length, t.verdictIssues), { n: urgent.length })
+      : t.verdictOk;
+
+    return html`<div class="screen away">
+      <div class="scan" aria-hidden="true"></div>
+      ${this._renderHeader(null, "away")}
+      <section class="verdict cut-m rise ${worst ?? "ok"}" aria-live="polite">
+        <span class="v-ico" aria-hidden="true">${worst ? ICON.alert : ICON.check}</span>
+        <span class="v-text">${verdict}</span>
+      </section>
+
+      ${issues.length
+        ? html`<section class="issues glass cut-m rise" aria-label=${verdict}>
+            ${issues.map((i) => {
+              // Jedno urządzenie: nazwa i pokój; kilka: same pokoje.
+              const where = (
+                i.entityIds.length === 1 ? [...i.names.slice(0, 1), ...i.areas] : i.areas
+              ).join(" · ");
+              return html`<div class="issue ${i.severity}">
+                <span class="dot" aria-hidden="true"></span>
+                <span class="i-text">
+                  <span class="i-title">${this._issueTitle(i)}</span>
+                  ${where
+                    ? html`<span class="i-where mono">${where.toLocaleUpperCase(this._lang)}</span>`
+                    : nothing}
+                </span>
+                ${this._actionButton(i)}
+              </div>`;
+            })}
+          </section>`
+        : nothing}
+      ${this._securing
+        ? this._renderSecure(steps)
+        : html`<button
+            class="secure cut-m rise ${steps.length ? "" : "idle"}"
+            ?disabled=${!steps.length}
+            @click=${() => {
+              // Główny zawór wody domyślnie odznaczony: bywa potrzebny pod nieobecność
+              // (podlewanie, uzupełnianie instalacji). Przy wycieku zakręca go przycisk sprawy.
+              this._secureOff = ["valve"];
+              this._secureDone = false;
+              this._securing = true;
+            }}
+          >
+            ${ICON.shield}
+            <span class="s-text">
+              <span class="s-title">${this._secureDone ? t.secureDone : t.secureHome}</span>
+              <span class="s-sub mono">${steps.length ? t.secureHint : t.secureNothing}</span>
+            </span>
+            ${steps.length ? ICON.right : nothing}
+          </button>`}
+
+      <section class="people rise">
+        <span class="p-label mono">${people.length ? t.peopleAtHome : t.nobodyHome}</span>
+        ${people.map((p) => html`<span class="person cut-s">${p}</span>`)}
+      </section>
+
+      <button class="rooms-link mono rise" @click=${() => (this._showRooms = true)}>
+        ${t.showRooms} ${ICON.right}
+      </button>
+    </div>`;
+  }
+
+  private _stepLabel(s: SecureStep): string {
+    const t = this._t;
+    return s.kind === "lights"
+      ? format(t.step.lights, { n: s.action.entityIds.length })
+      : t.step[s.kind];
+  }
+
+  private _renderSecure(steps: SecureStep[]): TemplateResult {
+    const t = this._t;
+    const chosen = steps.filter((s) => !this._secureOff.includes(s.kind));
+    const physical = chosen.some((s) => s.action.hold);
+    const run = () => {
+      for (const s of chosen) this._run(s.action);
+      this._securing = false;
+      this._secureDone = true;
+    };
+    return html`<section class="secure-box glass cut-m rise" aria-label=${t.secureHome}>
+      <div class="sb-title">${t.secureHome}</div>
+      ${steps.map((s) => {
+        const on = !this._secureOff.includes(s.kind);
+        return html`<label class="step">
+          <input
+            type="checkbox"
+            .checked=${on}
+            @change=${() =>
+              (this._secureOff = on
+                ? [...this._secureOff, s.kind]
+                : this._secureOff.filter((k) => k !== s.kind))}
+          />
+          <span class="box cut-s" aria-hidden="true">${on ? ICON.check : nothing}</span>
+          <span>${this._stepLabel(s)}</span>
+          ${s.action.hold ? html`<span class="tag-hold mono">${t.hold}</span>` : nothing}
+        </label>`;
+      })}
+      <div class="sb-actions">
+        <button class="act ghost cut-s ctl" @click=${() => (this._securing = false)}>
+          ${t.cancel}
+        </button>
+        ${!chosen.length
+          ? nothing
+          : physical
+            ? this._holdButton("secure", t.secureRun, run, "primary")
+            : html`<button class="act primary cut-s ctl" @click=${run}>${t.secureRun}</button>`}
+      </div>
+    </section>`;
   }
 
   private _renderTodos(): TemplateResult {
@@ -1812,6 +2064,301 @@ export class KageHomeCard extends LitElement {
         border-color: var(--kage-scene);
         color: var(--kage-on-scene);
         box-shadow: 0 0 22px rgba(255, 43, 214, 0.5);
+      }
+
+      /* --- Poza domem --- */
+      .here-dot.away {
+        background: var(--kage-scene);
+        animation: none;
+        box-shadow: 0 0 8px rgba(255, 43, 214, 0.8);
+      }
+      .away .back {
+        margin: 10px 16px 0;
+      }
+      .screen > .back {
+        margin: 10px 16px 0;
+      }
+      .verdict {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin: 16px 16px 0;
+        padding: 18px 16px;
+        border: 1px solid rgba(61, 255, 162, 0.4);
+        background: rgba(61, 255, 162, 0.07);
+        color: var(--kage-ok);
+      }
+      .verdict.warn,
+      .verdict.info {
+        border-color: rgba(255, 179, 0, 0.45);
+        background: rgba(255, 179, 0, 0.08);
+        color: var(--kage-warn);
+      }
+      .verdict.info {
+        border-color: rgba(0, 229, 255, 0.35);
+        background: rgba(0, 229, 255, 0.06);
+        color: var(--kage-accent);
+      }
+      .verdict.crit {
+        border-color: rgba(255, 59, 92, 0.6);
+        background: rgba(255, 59, 92, 0.12);
+        color: var(--kage-crit);
+        box-shadow: 0 0 28px rgba(255, 59, 92, 0.25);
+      }
+      .v-text {
+        font-size: 21px;
+        font-weight: 600;
+        color: var(--kage-ink);
+        line-height: 1.2;
+      }
+      .issues {
+        position: relative;
+        margin: 10px 16px 0;
+        padding: 4px 14px;
+      }
+      .issue {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 58px;
+        padding: 8px 0;
+        border-top: 1px solid rgba(0, 229, 255, 0.12);
+      }
+      .issue:first-child {
+        border-top: 0;
+      }
+      .issue .dot {
+        width: 8px;
+        height: 8px;
+        flex: none;
+        background: var(--kage-accent);
+        transform: rotate(45deg);
+      }
+      .issue.warn .dot {
+        background: var(--kage-warn);
+        box-shadow: 0 0 8px rgba(255, 179, 0, 0.7);
+      }
+      .issue.crit .dot {
+        background: var(--kage-crit);
+        box-shadow: 0 0 10px rgba(255, 59, 92, 0.9);
+      }
+      .i-text {
+        flex: 1;
+        min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .i-title {
+        font-size: 16px;
+        font-weight: 600;
+      }
+      .issue.crit .i-title {
+        color: var(--kage-crit);
+      }
+      .i-where {
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        color: var(--kage-ink-dim);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .act {
+        flex: none;
+        height: 36px;
+        padding: 0 14px;
+        border: 1px solid rgba(0, 229, 255, 0.45);
+        background: rgba(0, 229, 255, 0.1);
+        color: var(--kage-accent);
+        font: 600 13px var(--kage-font-ui);
+        letter-spacing: 0.04em;
+        cursor: pointer;
+      }
+      .act.primary {
+        background: var(--kage-accent);
+        color: var(--kage-on-accent);
+        border-color: var(--kage-accent);
+      }
+      .act.ghost {
+        border-color: rgba(159, 176, 198, 0.35);
+        background: transparent;
+        color: var(--kage-ink-muted);
+      }
+      .hold {
+        position: relative;
+        flex: none;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+        height: 44px;
+        min-width: 112px;
+        padding: 0 14px;
+        border: 1px solid rgba(255, 179, 0, 0.55);
+        background: rgba(255, 179, 0, 0.08);
+        color: var(--kage-warn);
+        font: 600 13px var(--kage-font-ui);
+        cursor: pointer;
+        touch-action: none;
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+      }
+      .hold.small {
+        height: 40px;
+        min-width: 104px;
+      }
+      .hold .fill {
+        position: absolute;
+        inset: 0;
+        background: rgba(255, 179, 0, 0.35);
+        transform: scaleX(0);
+        transform-origin: left;
+      }
+      .hold.holding .fill {
+        transform: scaleX(1);
+        transition: transform ${HOLD_MS}ms linear;
+      }
+      .hold .lbl,
+      .hold .sub {
+        position: relative;
+      }
+      .hold .sub {
+        font-size: 9px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        opacity: 0.75;
+      }
+      .secure {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        width: calc(100% - 32px);
+        margin: 12px 16px 0;
+        padding: 16px;
+        border: 1px solid var(--kage-accent);
+        background: rgba(0, 229, 255, 0.12);
+        color: var(--kage-accent);
+        text-align: left;
+        cursor: pointer;
+        box-shadow: 0 0 24px rgba(0, 229, 255, 0.18);
+      }
+      .secure.idle {
+        border-color: rgba(159, 176, 198, 0.3);
+        background: transparent;
+        color: var(--kage-ink-dim);
+        box-shadow: none;
+        cursor: default;
+      }
+      .s-text {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+      }
+      .s-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--kage-ink);
+      }
+      .s-sub {
+        font-size: 10.5px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .secure-box {
+        position: relative;
+        margin: 12px 16px 0;
+        padding: 14px;
+        border: 1px solid var(--kage-accent);
+      }
+      .sb-title {
+        font-size: 18px;
+        font-weight: 600;
+        margin-bottom: 6px;
+      }
+      .step {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        min-height: 46px;
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .step input {
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .step .box {
+        width: 22px;
+        height: 22px;
+        flex: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--kage-accent);
+        background: rgba(0, 229, 255, 0.1);
+        color: var(--kage-accent);
+      }
+      .step input:focus-visible + .box {
+        outline: 2px solid var(--kage-accent);
+        outline-offset: 2px;
+      }
+      .tag-hold {
+        margin-left: auto;
+        font-size: 9.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--kage-warn);
+      }
+      .sb-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        margin-top: 10px;
+      }
+      .people {
+        position: relative;
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin: 18px 16px 0;
+      }
+      .p-label {
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--kage-ink-dim);
+        margin-right: 4px;
+      }
+      .person {
+        padding: 6px 12px;
+        border: 1px solid rgba(61, 255, 162, 0.4);
+        background: rgba(61, 255, 162, 0.07);
+        font-size: 14px;
+      }
+      .rooms-link {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 18px 16px 0;
+        padding: 0;
+        height: 36px;
+        border: 0;
+        background: transparent;
+        color: var(--kage-accent);
+        font-size: 12px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        cursor: pointer;
       }
     `,
   ];
