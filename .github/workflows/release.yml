@@ -1,0 +1,26 @@
+name: Release
+
+# Wydanie: ustaw wersję w package.json, utwórz tag vX.Y.Z i wypchnij go.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+      - name: Publish release with kage.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/kage.js --title "KAGE ${GITHUB_REF_NAME}" --generate-notes

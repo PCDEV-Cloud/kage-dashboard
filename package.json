@@ -1,0 +1,25 @@
+{
+  "name": "kage-dashboard",
+  "version": "0.1.0",
+  "description": "KAGE — kontekstowy dashboard Home Assistant generowany automatycznie z rejestrów.",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite build --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "check": "npm run typecheck && npm run test && npm run build",
+    "smoke": "node dev/smoke.mjs"
+  },
+  "dependencies": {
+    "lit": "3.2.1"
+  },
+  "devDependencies": {
+    "prettier": "3.5.3",
+    "typescript": "5.8.3",
+    "vite": "6.3.5",
+    "vitest": "3.2.4"
+  }
+}
