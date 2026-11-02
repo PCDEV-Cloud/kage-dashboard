@@ -28,6 +28,7 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 - Obecność: wyłącznie encja `person` zalogowanego użytkownika (np. Wi-Fi z routera); pokój osoby z opcjonalnego sensora obszaru (np. Bermuda). Bez geolokalizacji. Brak danych: W domu + ostatni pokój.
 - Panel ścienny to techniczny użytkownik HA; opcja „Konto techniczne” wyłącza go z obecności i z listy „Kto jest w domu”. Pokój panelu wykrywany tym samym mechanizmem co pokój osoby.
 - **Bez kodów PIN.** Akcje fizyczne (brama, furtka, zawór wody) wymagają przytrzymania 1,1 s (HoldButton); reszta jednym dotknięciem.
+- „Zabezpiecz dom” pokazuje kroki przed wykonaniem; główny zawór wody domyślnie odznaczony (decyzja właściciela).
 - **Bez wypełniaczy:** żadnego zegara, daty, powitań, pogody dla ozdoby.
 - **Bez widoków administracyjnych.** Pokazujemy to, na co domownik może zareagować (słaba bateria, brak ciepłej wody, ciśnienie, pobór prądu przy pustym domu); wykresy, historia, diagnostyka zostają w dashboardach administratora.
 - Role i uprawnienia konfigurowane w edytorze strategii w HA; role to konfiguracja, nie kod. Ograniczenia ukrywają interfejs, nie zabezpieczają urządzeń.
