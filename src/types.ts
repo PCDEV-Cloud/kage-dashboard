@@ -23,6 +23,7 @@ export interface DeviceEntry {
   name_by_user?: string | null;
   area_id?: string | null;
   labels?: string[];
+  entry_type?: "service" | null;
 }
 
 export interface EntityEntry {
@@ -33,6 +34,7 @@ export interface EntityEntry {
   entity_category?: "config" | "diagnostic" | null;
   hidden?: boolean;
   labels?: string[];
+  platform?: string;
 }
 
 export interface HassEntityState {

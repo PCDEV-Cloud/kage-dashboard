@@ -70,6 +70,17 @@ export const SYSTEM_DOMAINS = new Set([
 
 export const domainOf = (entityId: string): string => entityId.split(".", 1)[0];
 
+// Integracje, których encje nie opisują pokoi: telefony domowników (podróżują z nimi)
+// i usługi samego HA.
+export const SYSTEM_PLATFORMS = new Set(["mobile_app", "backup", "hassio", "sun", "met"]);
+
+export function isSystemEntity(hass: HomeAssistant, entity: EntityEntry): boolean {
+  if (SYSTEM_DOMAINS.has(domainOf(entity.entity_id))) return true;
+  if (entity.platform && SYSTEM_PLATFORMS.has(entity.platform)) return true;
+  const device = entity.device_id ? hass.devices[entity.device_id] : undefined;
+  return device?.entry_type === "service";
+}
+
 // Encje, których domownik nie powinien widzieć: ukryte, diagnostyczne, konfiguracyjne.
 export function isUserFacing(entity: EntityEntry): boolean {
   if (entity.hidden) return false;
@@ -104,7 +115,7 @@ export function buildHomeModel(hass: HomeAssistant, floorEntries: FloorEntry[]):
 
   for (const entity of Object.values(hass.entities)) {
     if (!isUserFacing(entity)) continue;
-    if (SYSTEM_DOMAINS.has(domainOf(entity.entity_id))) {
+    if (isSystemEntity(hass, entity)) {
       systemEntityIds.push(entity.entity_id);
       continue;
     }

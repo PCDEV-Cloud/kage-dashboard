@@ -48,7 +48,7 @@ describe("unassigned report", () => {
     const report = String(section.cards[1].content);
     expect(report).toContain("`light` 1 · `sensor` 1");
     expect(report).toContain("`sensor.bez_obszaru` — Loose sensor");
-    expect(report).toContain("3 system entities");
+    expect(report).toContain("5 system entities");
   });
 });
 

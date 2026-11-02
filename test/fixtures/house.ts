@@ -27,6 +27,8 @@ export function makeHass(language = "pl", withFloors = true): HomeAssistant {
     devices: {
       d_lampa: { id: "d_lampa", name: "Lampa salon", area_id: "salon" },
       d_roleta: { id: "d_roleta", name: "Roleta kuchnia", area_id: "kuchnia" },
+      d_iphone: { id: "d_iphone", name: "iPhone Paweł" },
+      d_backup: { id: "d_backup", name: "Backup", entry_type: "service" },
     },
     entities: {
       "light.salon": { entity_id: "light.salon", device_id: "d_lampa" },
@@ -44,6 +46,12 @@ export function makeHass(language = "pl", withFloors = true): HomeAssistant {
       "automation.wieczor": { entity_id: "automation.wieczor" },
       "update.core": { entity_id: "update.core" },
       "person.pawel": { entity_id: "person.pawel" },
+      "sensor.iphone_battery": {
+        entity_id: "sensor.iphone_battery",
+        device_id: "d_iphone",
+        platform: "mobile_app",
+      },
+      "sensor.backup_state": { entity_id: "sensor.backup_state", device_id: "d_backup" },
       "light.nieistniejacy_obszar": { entity_id: "light.nieistniejacy_obszar", area_id: "garaz" },
     },
     states: {},

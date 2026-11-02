@@ -34,7 +34,13 @@ describe("buildHomeModel", () => {
   });
 
   it("keeps system entities out of rooms and out of the unassigned list", () => {
-    expect(model.systemEntityIds).toEqual(["automation.wieczor", "person.pawel", "update.core"]);
+    expect(model.systemEntityIds).toEqual([
+      "automation.wieczor",
+      "person.pawel",
+      "sensor.backup_state",
+      "sensor.iphone_battery",
+      "update.core",
+    ]);
     expect(model.unassignedEntityIds).not.toContain("automation.wieczor");
   });
 
