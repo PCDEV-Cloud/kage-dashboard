@@ -128,6 +128,13 @@ export interface Strings {
   sideLabel: string;
   side: { right: string; left: string; front: string; back: string };
   roof: string;
+  roofType: string;
+  roofGable: string;
+  roofHip: string;
+  ridge: string;
+  ridgeX: string;
+  ridgeY: string;
+  pitch: string;
   resetAuto: string;
   save: string;
   saving: string;

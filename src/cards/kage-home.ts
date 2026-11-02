@@ -37,6 +37,7 @@ import {
   resolvePlan,
   type PlanConfig,
   type ResolvedPlan,
+  type Roof,
   type Side,
 } from "../engine/plan";
 import { contextFor, contextOverride, peopleHome, type Context } from "../engine/presence";
@@ -241,6 +242,101 @@ const ICON = {
     <path d="M5 12.5l4.5 4.5L19 7.5"></path>
   </svg>`,
 };
+
+// Połacie dachu nad płaszczyzną piętra (w pikselach płaszczyzny). Każda połać jest
+// zawieszona na swojej krawędzi i podniesiona o kąt spadku; w czterospadowym połacie są
+// trapezami i trójkątami, które spotykają się w narożach i na kalenicy.
+interface RoofFace {
+  style: Record<string, string>;
+  w: number;
+  h: number;
+  points: string; // wielokąt połaci we własnych współrzędnych (px)
+}
+
+function roofFaces(w: number, h: number, roof: Roof): RoofFace[] {
+  const p = roof.pitch;
+  const k = 1 / Math.cos((p * Math.PI) / 180);
+  const alongX = roof.ridge === "x";
+  const along = alongX ? w : h;
+  const half = (alongX ? h : w) / 2;
+  const inset = roof.type === "hip" ? Math.min(half, along / 2) : 0;
+  const s = half * k; // długość połaci od okapu do kalenicy
+  const t = inset * k; // długość połaci szczytowej (czterospadowy)
+  const pts = (list: number[][]) =>
+    list.map(([x, y]) => `${x!.toFixed(1)},${y!.toFixed(1)}`).join(" ");
+  const face = (
+    pos: Record<string, string>,
+    fw: number,
+    fh: number,
+    origin: string,
+    transform: string,
+    points: number[][],
+  ): RoofFace => ({
+    style: { ...pos, width: `${fw}px`, height: `${fh}px`, transformOrigin: origin, transform },
+    w: fw,
+    h: fh,
+    points: pts(points),
+  });
+  const faces: RoofFace[] = [];
+  if (alongX) {
+    faces.push(
+      face({ left: "0", top: "0" }, w, s, "top", `rotateX(${p}deg)`, [
+        [0, 0],
+        [w, 0],
+        [w - inset, s],
+        [inset, s],
+      ]),
+      face({ left: "0", bottom: "0" }, w, s, "bottom", `rotateX(${-p}deg)`, [
+        [inset, 0],
+        [w - inset, 0],
+        [w, s],
+        [0, s],
+      ]),
+    );
+    if (inset > 0)
+      faces.push(
+        face({ left: "0", top: "0" }, t, h, "left", `rotateY(${-p}deg)`, [
+          [0, 0],
+          [t, h / 2],
+          [0, h],
+        ]),
+        face({ right: "0", top: "0" }, t, h, "right", `rotateY(${p}deg)`, [
+          [t, 0],
+          [0, h / 2],
+          [t, h],
+        ]),
+      );
+  } else {
+    faces.push(
+      face({ left: "0", top: "0" }, s, h, "left", `rotateY(${-p}deg)`, [
+        [0, 0],
+        [s, inset],
+        [s, h - inset],
+        [0, h],
+      ]),
+      face({ right: "0", top: "0" }, s, h, "right", `rotateY(${p}deg)`, [
+        [s, 0],
+        [s, h],
+        [0, h - inset],
+        [0, inset],
+      ]),
+    );
+    if (inset > 0)
+      faces.push(
+        face({ left: "0", top: "0" }, w, t, "top", `rotateX(${p}deg)`, [
+          [0, 0],
+          [w, 0],
+          [w / 2, t],
+        ]),
+        face({ left: "0", bottom: "0" }, w, t, "bottom", `rotateX(${-p}deg)`, [
+          [w / 2, 0],
+          [w, t],
+          [0, t],
+        ]),
+      );
+  }
+  return faces;
+}
 
 export class KageHomeCard extends LitElement {
   static properties = {
@@ -988,8 +1084,13 @@ export class KageHomeCard extends LitElement {
           });
         const roof = plan.roof
           ? html`<span class="roof" aria-hidden="true"
-              ><span class="slope a"></span><span class="slope b"></span
-            ></span>`
+              >${roofFaces(PLANE_W, planeH, plan.roof).map(
+                (r) =>
+                  html`<span class="slope" style=${styleMap(r.style)}
+                    >${svg`<svg width=${r.w} height=${r.h} viewBox=${`0 0 ${r.w} ${r.h}`}><polygon points=${r.points}></polygon></svg>`}</span
+                  >`,
+              )}</span
+            >`
           : nothing;
         const [ox, oy] = this._sideOffset(group, f, viewCol);
         return html`<span
@@ -2810,21 +2911,17 @@ export class KageHomeCard extends LitElement {
       }
       .slope {
         position: absolute;
-        left: 0;
-        right: 0;
-        height: 50%;
-        border: 1px dashed rgba(0, 229, 255, 0.32);
-        background: rgba(0, 229, 255, 0.025);
+        display: block;
       }
-      .slope.a {
-        top: 0;
-        transform-origin: top;
-        transform: rotateX(-38deg);
+      .slope svg {
+        display: block;
+        overflow: visible;
       }
-      .slope.b {
-        bottom: 0;
-        transform-origin: bottom;
-        transform: rotateX(38deg);
+      .slope polygon {
+        fill: rgba(0, 229, 255, 0.05);
+        stroke: rgba(0, 229, 255, 0.4);
+        stroke-width: 1;
+        stroke-dasharray: 3 3;
       }
       .ground {
         position: absolute;

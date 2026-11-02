@@ -2,6 +2,9 @@ import { LitElement, css, html, nothing, svg, type TemplateResult } from "lit";
 import { format, type Strings } from "../i18n";
 import type { FloorModel } from "../engine/model";
 import {
+  DEFAULT_ROOF,
+  ROOF_PITCH_MAX,
+  ROOF_PITCH_MIN,
   SIDES,
   bbox,
   centroid,
@@ -13,9 +16,13 @@ import {
   rect,
   removeVertex,
   resolvePlan,
+  roofLines,
   writeFloor,
   type PlanConfig,
   type Pt,
+  type Ridge,
+  type Roof,
+  type RoofType,
   type ResolvedPlan,
   type Side,
 } from "../engine/plan";
@@ -263,6 +270,44 @@ export class KagePlanEditor extends LitElement {
     this.dispatchEvent(new CustomEvent("plan-floor", { detail: id }));
   }
 
+  private _roofFields(w: Work, roof: Roof): TemplateResult {
+    const t = this.strings;
+    const set = (patch: Partial<Roof>) => this._set({ ...w, roof: { ...roof, ...patch } });
+    return html`<label class="field">
+        <span>${t.roofType}</span>
+        <select
+          @change=${(e: Event) => set({ type: (e.target as HTMLSelectElement).value as RoofType })}
+        >
+          <option value="gable" ?selected=${roof.type === "gable"}>${t.roofGable}</option>
+          <option value="hip" ?selected=${roof.type === "hip"}>${t.roofHip}</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>${t.ridge}</span>
+        <select
+          @change=${(e: Event) => set({ ridge: (e.target as HTMLSelectElement).value as Ridge })}
+        >
+          <option value="x" ?selected=${roof.ridge === "x"}>${t.ridgeX}</option>
+          <option value="y" ?selected=${roof.ridge === "y"}>${t.ridgeY}</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>${t.pitch}</span>
+        <input
+          type="number"
+          min=${ROOF_PITCH_MIN}
+          max=${ROOF_PITCH_MAX}
+          step="5"
+          .value=${String(roof.pitch)}
+          @change=${(e: Event) => {
+            const v = Number((e.target as HTMLInputElement).value);
+            set({ pitch: Math.min(ROOF_PITCH_MAX, Math.max(ROOF_PITCH_MIN, Math.round(v) || 30)) });
+          }}
+        />
+        °
+      </label>`;
+  }
+
   // --- widok ---
 
   protected render(): TemplateResult {
@@ -295,6 +340,14 @@ export class KagePlanEditor extends LitElement {
         </pattern>
       </defs>
       <rect x="0" y="0" width=${w.cols} height=${w.rows} fill="url(#g)" stroke=${accent} stroke-width="0.06"></rect>
+      ${
+        w.roof
+          ? roofLines(w.cols, w.rows, w.roof).map(
+              ([a, b]) =>
+                svg`<line class="roofline" x1=${a[0]} y1=${a[1]} x2=${b[0]} y2=${b[1]}></line>`,
+            )
+          : nothing
+      }
       ${w.voids.map((v, i) => {
         const sel = this._sel?.kind === "void" && this._sel.index === i;
         const [cx, cy] = centroid(v);
@@ -452,12 +505,16 @@ export class KagePlanEditor extends LitElement {
           <label class="field check">
             <input
               type="checkbox"
-              .checked=${w.roof}
+              .checked=${!!w.roof}
               @change=${(e: Event) =>
-                this._set({ ...w, roof: (e.target as HTMLInputElement).checked })}
+                this._set({
+                  ...w,
+                  roof: (e.target as HTMLInputElement).checked ? { ...DEFAULT_ROOF } : null,
+                })}
             />
             <span>${t.roof}</span>
           </label>
+          ${w.roof ? this._roofFields(w, w.roof) : nothing}
           <button class="act ghost cut-s ctl" @click=${() => this._resetAuto()}>
             ${t.resetAuto}
           </button>
@@ -541,6 +598,12 @@ export class KagePlanEditor extends LitElement {
       }
       .lbl.dim {
         fill: var(--kage-ink-dim);
+      }
+      .roofline {
+        stroke: rgba(255, 179, 0, 0.6);
+        stroke-width: 0.07;
+        stroke-dasharray: 0.3 0.2;
+        pointer-events: none;
       }
       .corner {
         fill: #05060a;

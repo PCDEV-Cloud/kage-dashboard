@@ -11,9 +11,62 @@ export interface FloorPlanConfig {
   cols?: number;
   rows?: number;
   side?: Side; // gdzie leży to piętro względem budynku (dla stref z tego samego poziomu)
-  roof?: boolean; // poddasze: linie dachu nad rzutem
+  roof?: boolean | RoofConfig; // poddasze: dach nad rzutem (true = dwuspadowy, 30°)
   rooms?: Record<string, Pt[]>; // obszar → wielokąt
   voids?: Pt[][]; // puste obszary (np. zarys domu na piętrze z ogrodem)
+}
+
+// Dach poddasza. Kalenica „x” biegnie poziomo na rzucie w edytorze (spadki do góry i do dołu
+// rzutu), „y” pionowo (spadki w lewo i w prawo). Czterospadowy ma spadki ze wszystkich stron.
+export type RoofType = "gable" | "hip";
+export type Ridge = "x" | "y";
+
+export interface RoofConfig {
+  type?: RoofType;
+  ridge?: Ridge;
+  pitch?: number; // kąt spadku w stopniach
+}
+
+export interface Roof {
+  type: RoofType;
+  ridge: Ridge;
+  pitch: number;
+}
+
+export const ROOF_PITCH_MIN = 10;
+export const ROOF_PITCH_MAX = 60;
+export const DEFAULT_ROOF: Roof = { type: "gable", ridge: "x", pitch: 30 };
+
+export function resolveRoof(v: boolean | RoofConfig | undefined, guess: boolean): Roof | null {
+  if (v === false || (v === undefined && !guess)) return null;
+  if (v === true || v === undefined) return { ...DEFAULT_ROOF };
+  const pitch = Number.isFinite(v.pitch)
+    ? Math.min(ROOF_PITCH_MAX, Math.max(ROOF_PITCH_MIN, Math.round(v.pitch!)))
+    : DEFAULT_ROOF.pitch;
+  return {
+    type: v.type === "hip" ? "hip" : "gable",
+    ridge: v.ridge === "y" ? "y" : "x",
+    pitch,
+  };
+}
+
+// Linie dachu na rzucie (widok z góry), w jednostkach siatki: kalenica i narożniki.
+export function roofLines(cols: number, rows: number, roof: Roof): [Pt, Pt][] {
+  const along = roof.ridge === "x" ? cols : rows;
+  const across = roof.ridge === "x" ? rows : cols;
+  const half = across / 2;
+  const inset = roof.type === "hip" ? Math.min(half, along / 2) : 0;
+  const map = (a: number, b: number): Pt => (roof.ridge === "x" ? [a, b] : [b, a]);
+  const lines: [Pt, Pt][] = [[map(inset, half), map(along - inset, half)]];
+  if (roof.type === "hip") {
+    lines.push(
+      [map(0, 0), map(inset, half)],
+      [map(0, across), map(inset, half)],
+      [map(along, 0), map(along - inset, half)],
+      [map(along, across), map(along - inset, half)],
+    );
+  }
+  return lines;
 }
 
 export interface PlanConfig {
@@ -29,7 +82,7 @@ export interface ResolvedPlan {
   cols: number;
   rows: number;
   side: Side;
-  roof: boolean;
+  roof: Roof | null;
   auto: boolean;
   rooms: ResolvedRoom[];
   voids: Pt[][];
@@ -152,7 +205,7 @@ export function resolvePlan(
   const cols = cfg?.cols && cfg.cols >= 4 ? Math.round(cfg.cols) : DEFAULT_COLS;
   const rows = cfg?.rows && cfg.rows >= 4 ? Math.round(cfg.rows) : DEFAULT_ROWS;
   const side = cfg?.side && SIDES.includes(cfg.side) ? cfg.side : "right";
-  const roof = cfg?.roof ?? isAtticFloor(floor);
+  const roof = resolveRoof(cfg?.roof, isAtticFloor(floor));
   const voids = (cfg?.voids ?? []).filter(validPts);
   if (!cfg?.rooms) {
     return {
@@ -192,7 +245,7 @@ export function writeFloor(
     if (floor.cols !== DEFAULT_COLS) cfg.cols = floor.cols;
     if (floor.rows !== DEFAULT_ROWS) cfg.rows = floor.rows;
     if (floor.side !== "right") cfg.side = floor.side;
-    cfg.roof = floor.roof;
+    cfg.roof = floor.roof ?? false;
     if (floor.voids.length) cfg.voids = floor.voids;
     floors[floorId] = cfg;
   }

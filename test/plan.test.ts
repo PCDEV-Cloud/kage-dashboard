@@ -1,5 +1,6 @@
 import { buildHomeModel } from "../src/engine/model";
 import {
+  DEFAULT_ROOF,
   centroid,
   freeSpot,
   insertVertex,
@@ -8,6 +9,8 @@ import {
   rect,
   removeVertex,
   resolvePlan,
+  resolveRoof,
+  roofLines,
   writeFloor,
 } from "../src/engine/plan";
 import { floors, makeHass } from "./fixtures/house";
@@ -26,9 +29,34 @@ describe("plan", () => {
   });
 
   it("guesses the attic roof from the floor name", () => {
-    expect(resolvePlan(undefined, parter).roof).toBe(false);
-    expect(resolvePlan(undefined, { ...strych, name: "Poddasze" }).roof).toBe(true);
-    expect(resolvePlan(undefined, { ...strych, name: "Attic" }).roof).toBe(true);
+    expect(resolvePlan(undefined, parter).roof).toBeNull();
+    expect(resolvePlan(undefined, { ...strych, name: "Poddasze" }).roof).toEqual(DEFAULT_ROOF);
+    expect(resolvePlan(undefined, { ...strych, name: "Attic" }).roof).toEqual(DEFAULT_ROOF);
+  });
+
+  it("reads roof type, ridge and pitch and draws its lines", () => {
+    expect(resolveRoof({ type: "hip", ridge: "y", pitch: 80 }, false)).toEqual({
+      type: "hip",
+      ridge: "y",
+      pitch: 60,
+    });
+    expect(resolveRoof(false, true)).toBeNull();
+    expect(roofLines(20, 16, DEFAULT_ROOF)).toEqual([
+      [
+        [0, 8],
+        [20, 8],
+      ],
+    ]);
+    const hip = roofLines(20, 16, { type: "hip", ridge: "x", pitch: 30 });
+    expect(hip[0]).toEqual([
+      [8, 8],
+      [12, 8],
+    ]);
+    expect(hip).toHaveLength(5);
+    expect(roofLines(20, 16, { type: "gable", ridge: "y", pitch: 30 })[0]).toEqual([
+      [10, 0],
+      [10, 16],
+    ]);
   });
 
   it("uses saved polygons and lists rooms still to place", () => {
@@ -47,6 +75,8 @@ describe("plan", () => {
     const resolved = resolvePlan(undefined, parter);
     const saved = writeFloor(undefined, "parter", { ...resolved, voids: [rect(0, 0, 2, 2)] });
     expect(saved.floors!.parter).toMatchObject({ roof: false, voids: [rect(0, 0, 2, 2)] });
+    const withRoof = writeFloor(undefined, "p", { ...resolved, roof: DEFAULT_ROOF });
+    expect(withRoof.floors!.p!.roof).toEqual(DEFAULT_ROOF);
     expect(saved.floors!.parter!.cols).toBeUndefined();
     expect(writeFloor(saved, "parter", null).floors).toEqual({});
   });
