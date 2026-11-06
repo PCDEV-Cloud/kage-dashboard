@@ -255,6 +255,8 @@ describe("isOutdoorFloor", () => {
     expect(isOutdoorFloor({ name: "Outdoors" })).toBe(true);
     expect(isOutdoorFloor({ name: "Ogród" })).toBe(true);
     expect(isOutdoorFloor({ name: "Teren", icon: "mdi:tree" })).toBe(true);
+    expect(isOutdoorFloor({ name: "Driveway" })).toBe(true);
+    expect(isOutdoorFloor({ name: "Front Drive" })).toBe(true);
     expect(isOutdoorFloor({ name: "Ground Floor" })).toBe(false);
   });
 

@@ -22,7 +22,7 @@ export interface FloorModel {
 // Domysł „teren zewnętrzny” do czasu przełącznika w edytorze (etap 6).
 const OUTDOOR_ICON = /tree|flower|grass|nature|pine|forest|garden|fence|outdoor|pool|terrain|park/i;
 const OUTDOOR_NAME =
-  /outdoor|outside|garden|exterior|yard|grounds|zewn|ogr[oó]d|teren|posesj|podw[oó]rk|花园|户外|室外/i;
+  /outdoor|outside|garden|exterior|yard|grounds|drive|forecourt|patio|zewn|ogr[oó]d|teren|posesj|podw[oó]rk|podjazd|花园|户外|室外/i;
 
 export function isOutdoorFloor(floor: { name: string; icon?: string | null }): boolean {
   return OUTDOOR_NAME.test(floor.name) || (!!floor.icon && OUTDOOR_ICON.test(floor.icon));
