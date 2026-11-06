@@ -16,11 +16,15 @@ import {
   moveBy,
   rect,
   removeVertex,
+  dashedAfterInsert,
+  dashedAfterRemove,
+  toggleDashed,
   resolvePlan,
   roofLines,
   writeFloor,
   type PlanConfig,
   type Pt,
+  type ResolvedRoom,
   type Ridge,
   type Roof,
   type RoofType,
@@ -47,6 +51,7 @@ export class KagePlanEditor extends LitElement {
     _work: { state: true },
     _sel: { state: true },
     _vertex: { state: true },
+    _edge: { state: true },
   };
 
   floors: FloorModel[] = [];
@@ -59,6 +64,7 @@ export class KagePlanEditor extends LitElement {
   private _work: Record<string, Work | null> = {};
   private _sel: Sel = null;
   private _vertex: number | null = null;
+  private _edge: number | null = null; // wybrana krawędź pokoju (do linii przerywanej)
   private _drag: Drag = null;
 
   private get _floor(): FloorModel {
@@ -73,6 +79,7 @@ export class KagePlanEditor extends LitElement {
     return {
       cols: r.cols,
       rows: r.rows,
+      outdoor: r.outdoor,
       side: r.side,
       roof: r.roof,
       rooms: r.rooms,
@@ -108,6 +115,30 @@ export class KagePlanEditor extends LitElement {
     }
   }
 
+  private _selRoom(w: Work): ResolvedRoom | null {
+    const sel = this._sel;
+    return sel?.kind === "room" ? (w.rooms.find((r) => r.id === sel.id) ?? null) : null;
+  }
+
+  // Zmiana wielokąta wybranego pokoju razem z numerami krawędzi przerywanych.
+  private _setSelRoom(w: Work, pts: Pt[], dashed: number[] | undefined): void {
+    const sel = this._sel;
+    if (sel?.kind !== "room") return this._setSelPoints(w, pts);
+    this._set({
+      ...w,
+      rooms: w.rooms.map((r) =>
+        r.id === sel.id ? { id: r.id, points: pts, ...(dashed?.length ? { dashed } : {}) } : r,
+      ),
+    });
+  }
+
+  private _toggleDashed(): void {
+    const w = this._current();
+    const r = this._selRoom(w);
+    if (!r || this._edge === null) return;
+    this._setSelRoom(w, r.points, toggleDashed(r.dashed, this._edge));
+  }
+
   // --- wskaźnik ---
 
   private _toGrid(e: PointerEvent): Pt {
@@ -122,6 +153,7 @@ export class KagePlanEditor extends LitElement {
     e.stopPropagation();
     this._sel = sel;
     this._vertex = null;
+    this._edge = null;
     const pts = this._selPoints(this._current());
     if (!pts) return;
     this._drag = { mode: "move", start: this._toGrid(e), orig: pts };
@@ -131,6 +163,7 @@ export class KagePlanEditor extends LitElement {
   private _startVertex(e: PointerEvent, index: number): void {
     e.stopPropagation();
     this._vertex = index;
+    this._edge = null;
     this._drag = { mode: "vertex", index };
     (e.currentTarget as Element).closest("svg")?.setPointerCapture(e.pointerId);
   }
@@ -140,7 +173,13 @@ export class KagePlanEditor extends LitElement {
     const w = this._current();
     const pts = this._selPoints(w);
     if (!pts) return;
-    this._setSelPoints(w, insertVertex(pts, after));
+    const r = this._selRoom(w);
+    this._setSelRoom(
+      w,
+      insertVertex(pts, after),
+      r ? dashedAfterInsert(r.dashed, after) : undefined,
+    );
+    this._edge = null;
     this._startVertex(e, after + 1);
   }
 
@@ -196,16 +235,27 @@ export class KagePlanEditor extends LitElement {
     const pts = this._selPoints(w);
     if (!pts) return;
     const b = bbox(pts);
-    this._setSelPoints(w, kind === "rect" ? rect(b.x, b.y, b.w, b.h) : lShape(b.x, b.y, b.w, b.h));
+    this._setSelRoom(
+      w,
+      kind === "rect" ? rect(b.x, b.y, b.w, b.h) : lShape(b.x, b.y, b.w, b.h),
+      [],
+    );
     this._vertex = null;
+    this._edge = null;
   }
 
   private _removeCorner(): void {
     const w = this._current();
     const pts = this._selPoints(w);
-    if (!pts || this._vertex === null) return;
-    this._setSelPoints(w, removeVertex(pts, this._vertex));
+    if (!pts || this._vertex === null || pts.length <= 3) return;
+    const r = this._selRoom(w);
+    this._setSelRoom(
+      w,
+      removeVertex(pts, this._vertex),
+      r ? dashedAfterRemove(r.dashed, this._vertex, pts.length) : undefined,
+    );
     this._vertex = null;
+    this._edge = null;
   }
 
   private _removeSel(): void {
@@ -246,6 +296,7 @@ export class KagePlanEditor extends LitElement {
     this._set({
       cols: r.cols,
       rows: r.rows,
+      outdoor: r.outdoor,
       side: r.side,
       roof: r.roof,
       rooms: r.rooms,
@@ -355,7 +406,9 @@ export class KagePlanEditor extends LitElement {
     const sameLevel = this.floors.filter((x) => x.level === f.level);
     // Rozmieszczenie stref poziomu: gdy na poziomie jest więcej niż jedna strefa.
     const hasSide = sameLevel.length > 1;
-    const accent = f.outdoor ? "#3dffa2" : "#00e5ff";
+    const outdoor = w.outdoor ?? f.outdoor;
+    const accent = outdoor ? "#3dffa2" : "#00e5ff";
+    const selRoom = this._selRoom(w);
 
     const canvas = svg`<svg
       class="canvas"
@@ -398,13 +451,37 @@ export class KagePlanEditor extends LitElement {
       ${w.rooms.map((r) => {
         const sel = this._sel?.kind === "room" && this._sel.id === r.id;
         const [cx, cy] = centroid(r.points);
+        const dashed = new Set(r.dashed ?? []);
         return svg`<polygon
             class="room ${sel ? "sel" : ""}"
             points=${r.points.map((p) => p.join(",")).join(" ")}
             @pointerdown=${(e: PointerEvent) => this._startMove(e, { kind: "room", id: r.id })}
           ></polygon>
+          ${r.points.map((p, i) => {
+            const q = r.points[(i + 1) % r.points.length]!;
+            return svg`<line
+              class="edge ${sel ? "sel" : ""} ${dashed.has(i) ? "dashed" : ""} ${sel && this._edge === i ? "on" : ""}"
+              x1=${p[0]} y1=${p[1]} x2=${q[0]} y2=${q[1]}
+            ></line>`;
+          })}
           <text class="lbl" x=${cx} y=${cy}>${names.get(r.id) ?? r.id}</text>`;
       })}
+      ${
+        selRoom
+          ? selRoom.points.map((p, i) => {
+              const q = selRoom.points[(i + 1) % selRoom.points.length]!;
+              return svg`<line
+                class="edge-hit"
+                x1=${p[0]} y1=${p[1]} x2=${q[0]} y2=${q[1]}
+                @pointerdown=${(e: PointerEvent) => {
+                  e.stopPropagation();
+                  this._edge = i;
+                  this._vertex = null;
+                }}
+              ></line>`;
+            })
+          : nothing
+      }
       ${
         selPts
           ? svg`${selPts.map((p, i) => {
@@ -492,10 +569,21 @@ export class KagePlanEditor extends LitElement {
                 >
                   ${t.removeCorner}
                 </button>
+                ${this._sel.kind === "room"
+                  ? html`<button
+                      class="act cut-s ctl"
+                      ?disabled=${this._edge === null}
+                      aria-pressed=${selRoom?.dashed?.includes(this._edge ?? -1) ? "true" : "false"}
+                      @click=${() => this._toggleDashed()}
+                    >
+                      ${t.dashedEdge}
+                    </button>`
+                  : nothing}
                 <button class="act ghost cut-s ctl" @click=${() => this._removeSel()}>
                   ${this._sel.kind === "room" ? t.removeFromPlan : t.remove}
                 </button>
               </div>
+              ${this._sel.kind === "room" ? html`<p class="hint small">${t.edgeHint}</p>` : nothing}
             </section>`
           : nothing}
 
@@ -527,6 +615,15 @@ export class KagePlanEditor extends LitElement {
             />
           </label>
           ${hasSide ? this._sidePicker(w, sameLevel) : nothing}
+          <label class="field check">
+            <input
+              type="checkbox"
+              .checked=${outdoor}
+              @change=${(e: Event) =>
+                this._set({ ...w, outdoor: (e.target as HTMLInputElement).checked })}
+            />
+            <span>${t.outdoorFloor}</span>
+          </label>
           <label class="field check">
             <input
               type="checkbox"
@@ -603,6 +700,36 @@ export class KagePlanEditor extends LitElement {
         fill: rgba(0, 229, 255, 0.2);
         stroke: var(--kage-accent);
         stroke-width: 0.12;
+      }
+      .room,
+      .room.sel {
+        stroke: none;
+      }
+      .edge {
+        stroke: rgba(0, 229, 255, 0.55);
+        stroke-width: 0.08;
+        pointer-events: none;
+      }
+      .edge.sel {
+        stroke: var(--kage-accent);
+        stroke-width: 0.12;
+      }
+      .edge.dashed {
+        stroke-dasharray: 0.3 0.2;
+        stroke: rgba(159, 176, 198, 0.6);
+      }
+      .edge.on {
+        stroke: #ffb300;
+        stroke-width: 0.2;
+      }
+      .edge-hit {
+        stroke: transparent;
+        stroke-width: 0.6;
+        cursor: pointer;
+      }
+      .hint.small {
+        margin-top: 8px;
+        font-size: 12px;
       }
       .void {
         fill: rgba(159, 176, 198, 0.06);

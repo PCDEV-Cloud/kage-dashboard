@@ -34,8 +34,10 @@ import {
 } from "../engine/issues";
 import {
   SIDE_VECTOR,
+  bbox,
   centroid,
   groupSides,
+  polygonArea,
   resolvePlan,
   type PlanConfig,
   type ResolvedPlan,
@@ -60,7 +62,6 @@ const ZONE_STEP_Y = 152 + 26;
 const PLANE_H = 152;
 const LAYER_H = 113;
 const SECTION_H = 232;
-const MAX_TAGS = 5; // więcej pokoi: etykieta tylko wybranego, wybór z paska pod rzutem
 
 type Expanded = "lights" | "climates" | "media" | `cover:${CoverKind}` | null;
 
@@ -510,9 +511,14 @@ export class KageHomeCard extends LitElement {
 
   private _model(): HomeModel {
     const h = this.hass!;
-    const key = [h.entities, h.areas, h.devices, h.floors ?? this._fetchedFloors];
+    const key = [h.entities, h.areas, h.devices, h.floors ?? this._fetchedFloors, this._plan];
     if (this._cache && key.every((k, i) => k === this._cache!.key[i])) return this._cache.model;
     const model = buildHomeModel(h, this._floorEntries());
+    // „Teren zewnętrzny” ustawiony w edytorze rzutu ma pierwszeństwo przed zgadywaniem.
+    for (const f of model.floors) {
+      const o = this._plan?.floors?.[f.id]?.outdoor;
+      if (typeof o === "boolean") f.outdoor = o;
+    }
     this._cache = { key, model };
     return model;
   }
@@ -1348,7 +1354,9 @@ export class KageHomeCard extends LitElement {
           const sel = pickable && room?.id === a.id;
           const alpha = (0.3 + (0.6 * glow) / 100).toFixed(2);
           const edge = sel
-            ? "#00e5ff"
+            ? f.outdoor
+              ? "#3dffa2"
+              : "#00e5ff"
             : glow
               ? "rgba(255,190,60,.85)"
               : f.outdoor
@@ -1359,7 +1367,31 @@ export class KageHomeCard extends LitElement {
             : f.outdoor
               ? "rgba(20,60,40,.55)"
               : "rgba(10,14,24,.78)";
-          return { r, a, glow, sel, edge, fill, pts: r.points.map((p) => p.join(",")).join(" ") };
+          // Etykieta, gdy mieści się w pokoju (szacunek: wielkość pokoju na płaszczyźnie
+          // względem długości nazwy), a nie zależnie od liczby pokoi; wybrany pokój zawsze.
+          const ux = PLANE_W / plan.cols;
+          const uy = planeH / plan.rows;
+          const b = bbox(r.points);
+          const labelW = a.name.length * 6.2 + 18;
+          const fits =
+            b.w * ux >= labelW * 0.8 &&
+            b.h * uy >= 22 &&
+            polygonArea(r.points) * ux * uy >= labelW * 22 * 1.4;
+          const edges = r.points.map((p, i) => {
+            const q = r.points[(i + 1) % r.points.length]!;
+            return { p, q, dashed: r.dashed?.includes(i) ?? false };
+          });
+          return {
+            r,
+            a,
+            glow,
+            sel,
+            edge,
+            fill,
+            fits,
+            edges,
+            pts: r.points.map((p) => p.join(",")).join(" "),
+          };
         });
         const vb = `0 0 ${plan.cols} ${plan.rows}`;
         // Poświata zapalonych pokoi: rozmyta kopia wielokąta pod podłogą (jak wcześniej
@@ -1393,22 +1425,38 @@ export class KageHomeCard extends LitElement {
               points=${x.pts}
               style=${
                 x.glow
-                  ? `fill:url(#${gid});fill-opacity:${(0.45 + x.glow / 200).toFixed(2)};stroke:${x.edge}`
-                  : `fill:${x.fill};stroke:${x.edge}`
+                  ? `fill:url(#${gid});fill-opacity:${(0.45 + x.glow / 200).toFixed(2)};stroke:none`
+                  : `fill:${x.fill};stroke:none`
               }
               @click=${pickable ? () => this._pickRoom(f, x.a) : nothing}
             ></polygon>`,
           )}
+          ${shapes.map((x) =>
+            x.edges.map(
+              (e) => svg`<line
+                class="redge ${e.dashed ? "dashed" : ""}"
+                x1=${e.p[0]} y1=${e.p[1]} x2=${e.q[0]} y2=${e.q[1]}
+                style=${`stroke:${x.edge}`}
+              ></line>`,
+            ),
+          )}
         </svg>`;
         const walls = svg`<svg class="walls-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
-          ${shapes.map((x) => svg`<polygon points=${x.pts} style=${`stroke:${x.edge}`}></polygon>`)}
+          ${shapes.map((x) =>
+            x.edges
+              .filter((e) => !e.dashed)
+              .map(
+                (e) =>
+                  svg`<line x1=${e.p[0]} y1=${e.p[1]} x2=${e.q[0]} y2=${e.q[1]} style=${`stroke:${x.edge}`}></line>`,
+              ),
+          )}
         </svg>`;
         const tags = shapes
-          .filter((x) => pickable && (f.areas.length <= MAX_TAGS || x.sel))
+          .filter((x) => pickable && (x.fits || x.sel))
           .map((x) => {
             const [cx, cy] = centroid(x.r.points);
             return html`<button
-              class="tag cut-s ${x.sel ? "sel" : ""}"
+              class="tag cut-s ${x.sel ? "sel" : ""} ${f.outdoor ? "outdoor" : ""}"
               style=${styleMap({
                 left: `${(cx / plan.cols) * 100}%`,
                 top: `${(cy / plan.rows) * 100}%`,
@@ -1579,7 +1627,9 @@ export class KageHomeCard extends LitElement {
         const sel = a.id === room?.id;
         const lit = roomGlow(this.hass!, a) > 0;
         return html`<button
-          class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""}"
+          class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""} ${floor.outdoor
+            ? "outdoor"
+            : ""}"
           aria-pressed=${sel ? "true" : "false"}
           @click=${() => this._pickRoom(floor, a)}
         >
@@ -2383,6 +2433,24 @@ export class KageHomeCard extends LitElement {
         background: var(--kage-accent);
         border-color: var(--kage-accent);
         color: var(--kage-on-accent);
+      }
+      .tag.sel.outdoor,
+      .room-chip.sel.outdoor {
+        background: var(--kage-climate);
+        border-color: var(--kage-climate);
+        color: #04140c;
+      }
+      .rooms-svg line,
+      .walls-svg line {
+        vector-effect: non-scaling-stroke;
+        stroke-width: 1.2px;
+      }
+      .redge {
+        pointer-events: none;
+      }
+      .redge.dashed {
+        stroke-dasharray: 3 3;
+        opacity: 0.7;
       }
       .floor-card {
         position: absolute;

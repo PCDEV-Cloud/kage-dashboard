@@ -124,6 +124,9 @@ export interface Strings {
   shapeL: string;
   removeCorner: string;
   removeFromPlan: string;
+  dashedEdge: string;
+  edgeHint: string;
+  outdoorFloor: string;
   voids: string;
   addVoid: string;
   voidN: string; // {n}

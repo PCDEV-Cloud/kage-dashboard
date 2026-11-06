@@ -23,7 +23,8 @@ export interface FloorPlanConfig {
   rows?: number;
   side?: Side; // gdzie leży to piętro względem budynku (dla stref z tego samego poziomu)
   roof?: boolean | RoofConfig; // poddasze: dach nad rzutem (true = dwuspadowy, 30°)
-  rooms?: Record<string, Pt[]>; // obszar → wielokąt
+  rooms?: Record<string, Pt[] | RoomShape>; // obszar → wielokąt (albo z krawędziami przerywanymi)
+  outdoor?: boolean; // teren zewnętrzny (zielony); brak = zgadywany z nazwy i ikony
   voids?: Pt[][]; // puste obszary (np. zarys domu na piętrze z ogrodem)
 }
 
@@ -84,14 +85,57 @@ export interface PlanConfig {
   floors?: Record<string, FloorPlanConfig>;
 }
 
+// Pokój z krawędziami bez ściany (linia przerywana, np. przejście do salonu w otwartej
+// przestrzeni). `dashed` to numery krawędzi: krawędź i łączy wierzchołek i z i+1.
+export interface RoomShape {
+  points: Pt[];
+  dashed?: number[];
+}
+
 export interface ResolvedRoom {
   id: string;
   points: Pt[];
+  dashed?: number[];
+}
+
+// Numery krawędzi po wstawieniu wierzchołka za `i`: krawędź i dzieli się na dwie.
+export function dashedAfterInsert(dashed: number[] | undefined, i: number): number[] {
+  const out: number[] = [];
+  for (const e of dashed ?? []) {
+    if (e < i) out.push(e);
+    else if (e === i) out.push(i, i + 1);
+    else out.push(e + 1);
+  }
+  return out;
+}
+
+// Numery krawędzi po usunięciu wierzchołka `i` z wielokąta o `n` wierzchołkach: krawędzie
+// i−1 oraz i łączą się w jedną (przerywaną, jeśli któraś była).
+export function dashedAfterRemove(dashed: number[] | undefined, i: number, n: number): number[] {
+  const prev = (i - 1 + n) % n;
+  const set = new Set<number>();
+  for (const e of dashed ?? []) {
+    let m: number;
+    if (e === i || e === prev) m = prev;
+    else m = e;
+    if (m > i) m -= 1;
+    else if (m === prev && prev > i) m -= 1;
+    set.add(m);
+  }
+  return [...set].sort((a, b) => a - b);
+}
+
+export function toggleDashed(dashed: number[] | undefined, e: number): number[] {
+  const set = new Set(dashed ?? []);
+  if (set.has(e)) set.delete(e);
+  else set.add(e);
+  return [...set].sort((a, b) => a - b);
 }
 
 export interface ResolvedPlan {
   cols: number;
   rows: number;
+  outdoor: boolean | null; // null = zgadywany
   side: Side | null; // null = domyślnie (pierwsza strefa w środku, kolejne dookoła)
   roof: Roof | null;
   auto: boolean;
@@ -181,6 +225,17 @@ export function bbox(points: Pt[]): { x: number; y: number; w: number; h: number
   return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
 }
 
+// Pole wielokąta (wzór Gaussa), w jednostkach siatki.
+export function polygonArea(points: Pt[]): number {
+  let a = 0;
+  for (let i = 0; i < points.length; i += 1) {
+    const [x0, y0] = points[i]!;
+    const [x1, y1] = points[(i + 1) % points.length]!;
+    a += x0 * y1 - x1 * y0;
+  }
+  return Math.abs(a) / 2;
+}
+
 // Środek ciężkości wielokąta (do etykiety); dla zdegenerowanych – środek prostokąta otaczającego.
 export function centroid(points: Pt[]): Pt {
   let a = 0;
@@ -262,10 +317,12 @@ export function resolvePlan(
   const side = cfg?.side && SIDES.includes(cfg.side) ? cfg.side : null;
   const roof = resolveRoof(cfg?.roof, isAtticFloor(floor));
   const voids = (cfg?.voids ?? []).filter(validPts);
+  const outdoor = typeof cfg?.outdoor === "boolean" ? cfg.outdoor : null;
   if (!cfg?.rooms) {
     return {
       cols,
       rows,
+      outdoor,
       side,
       roof,
       auto: true,
@@ -277,11 +334,17 @@ export function resolvePlan(
   const rooms: ResolvedRoom[] = [];
   const unplaced: string[] = [];
   for (const a of floor.areas) {
-    const pts = cfg.rooms[a.id];
-    if (validPts(pts)) rooms.push({ id: a.id, points: pts });
-    else unplaced.push(a.id);
+    const v = cfg.rooms[a.id];
+    const pts = Array.isArray(v) ? v : v?.points;
+    if (validPts(pts)) {
+      const n = pts.length;
+      const dashed = Array.isArray(v)
+        ? undefined
+        : v?.dashed?.filter((e) => Number.isInteger(e) && e >= 0 && e < n);
+      rooms.push(dashed?.length ? { id: a.id, points: pts, dashed } : { id: a.id, points: pts });
+    } else unplaced.push(a.id);
   }
-  return { cols, rows, side, roof, auto: false, rooms, voids, unplaced };
+  return { cols, rows, outdoor, side, roof, auto: false, rooms, voids, unplaced };
 }
 
 // Zapis rzutu piętra z powrotem do konfiguracji (bez pól równych wartościom domyślnym).
@@ -295,8 +358,14 @@ export function writeFloor(
     delete floors[floorId];
   } else {
     const cfg: FloorPlanConfig = {
-      rooms: Object.fromEntries(floor.rooms.map((r) => [r.id, r.points])),
+      rooms: Object.fromEntries(
+        floor.rooms.map((r) => [
+          r.id,
+          r.dashed?.length ? { points: r.points, dashed: r.dashed } : r.points,
+        ]),
+      ),
     };
+    if (floor.outdoor !== null) cfg.outdoor = floor.outdoor;
     if (floor.cols !== DEFAULT_COLS) cfg.cols = floor.cols;
     if (floor.rows !== DEFAULT_ROWS) cfg.rows = floor.rows;
     if (floor.side) cfg.side = floor.side;

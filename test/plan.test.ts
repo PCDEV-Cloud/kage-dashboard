@@ -2,11 +2,15 @@ import { buildHomeModel } from "../src/engine/model";
 import {
   DEFAULT_ROOF,
   centroid,
+  dashedAfterInsert,
+  dashedAfterRemove,
+  toggleDashed,
   freeSpot,
   groupSides,
   insertVertex,
   lShape,
   moveBy,
+  polygonArea,
   rect,
   removeVertex,
   resolvePlan,
@@ -88,8 +92,29 @@ describe("plan", () => {
     expect(groupSides(["front-left", null])).toEqual(["front-left", "center"]);
   });
 
+  it("keeps dashed edges through edits and saves", () => {
+    expect(dashedAfterInsert([0, 2], 0)).toEqual([0, 1, 3]);
+    expect(dashedAfterRemove([1], 1, 4)).toEqual([0]);
+    expect(dashedAfterRemove([3], 0, 4)).toEqual([2]);
+    expect(dashedAfterRemove([2], 1, 4)).toEqual([1]);
+    expect(toggleDashed([1], 1)).toEqual([]);
+    const first = parter.areas[0]!.id;
+    const plan = {
+      floors: {
+        parter: { outdoor: true, rooms: { [first]: { points: rect(0, 0, 4, 4), dashed: [1, 9] } } },
+      },
+    };
+    const p = resolvePlan(plan, parter);
+    expect(p.rooms[0]).toEqual({ id: first, points: rect(0, 0, 4, 4), dashed: [1] });
+    expect(p.outdoor).toBe(true);
+    const back = writeFloor(undefined, "parter", p).floors!.parter!;
+    expect(back.rooms![first]).toEqual({ points: rect(0, 0, 4, 4), dashed: [1] });
+    expect(back.outdoor).toBe(true);
+  });
+
   it("edits polygons on the grid", () => {
     expect(lShape(0, 0, 4, 4)).toHaveLength(6);
+    expect(polygonArea(lShape(0, 0, 4, 4))).toBe(12);
     expect(centroid(rect(0, 0, 4, 2))).toEqual([2, 1]);
     expect(moveBy(rect(0, 0, 4, 4), 30, -3, 20, 16)).toEqual(rect(16, 0, 4, 4));
     expect(insertVertex(rect(0, 0, 4, 4), 0)[1]).toEqual([2, 0]);
