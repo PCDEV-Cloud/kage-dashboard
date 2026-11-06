@@ -657,8 +657,10 @@ export class KageHomeCard extends LitElement {
     const back = html`<button class="back mono rise" @click=${() => (this._showRooms = false)}>
       ${ICON.left} ${t.backToOverview}
     </button>`;
-    const strip =
-      floor.areas.length > MAX_TAGS || wide ? this._renderRoomStrip(floor, room) : nothing;
+    // Dolna część (pasek pomieszczeń, pokój, sceny) chowa się w całości uchwytem;
+    // wtedy rzut 3D zajmuje cały ekran. Pasek pomieszczeń jest w niej zawsze.
+    const hidden = this._stripHidden;
+    const strip = hidden ? nothing : this._renderRoomStrip(floor, room);
 
     if (wide && this._editing && this.hass.user?.is_admin) {
       return html`<div class="screen wide editing">
@@ -695,9 +697,14 @@ export class KageHomeCard extends LitElement {
       return html`<div class="screen wide ${ctx}">
         <div class="scan" aria-hidden="true"></div>
         ${this._renderHeader(floor, ctx)}
-        <div class="cols" style=${styleMap({ height: `${this._wideBodyHeight()}px` })}>
-          <div class="col-plan">${this._zoomedPlan(model, floor, room)} ${strip}</div>
-          <aside class="col-side">${side}</aside>
+        <div
+          class="cols ${hidden ? "full" : ""}"
+          style=${styleMap({ height: `${this._wideBodyHeight()}px` })}
+        >
+          <div class="col-plan">
+            ${this._zoomedPlan(model, floor, room, hidden)} ${strip} ${this._sheetGrip(true)}
+          </div>
+          ${hidden ? nothing : html`<aside class="col-side">${side}</aside>`}
         </div>
       </div>`;
     }
@@ -706,8 +713,11 @@ export class KageHomeCard extends LitElement {
       <div class="screen">
         <div class="scan" aria-hidden="true"></div>
         ${this._renderHeader(floor, ctx)} ${ctx === "away" ? back : this._renderTodos()}
-        ${this._renderPlan(model, floor, room, this._phonePlanH())} ${strip}
-        ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}
+        ${this._renderPlan(model, floor, room, hidden ? this._phoneFullH() : this._phonePlanH())}
+        ${this._sheetGrip(false)}
+        ${hidden
+          ? nothing
+          : html`${strip} ${room ? this._renderRoom(room) : nothing} ${this._renderScenes()}`}
       </div>
     `;
   }
@@ -913,10 +923,15 @@ export class KageHomeCard extends LitElement {
 
   // Rzut w układzie szerokim: plany pięter powiększone do szerokości kolumny,
   // a warstwy rozsunięte tak, żeby rzut zajął całą wysokość ekranu (jak w makiecie tabletu).
-  private _zoomedPlan(model: HomeModel, floor: FloorModel, room: AreaModel | null): TemplateResult {
-    const col = Math.max(PHONE_W, (this._width - 40) * 0.58);
-    const k = Math.min(MAX_ZOOM, col / PHONE_W);
-    const avail = this._wideBodyHeight() - STRIP_H;
+  private _zoomedPlan(
+    model: HomeModel,
+    floor: FloorModel,
+    room: AreaModel | null,
+    full = false,
+  ): TemplateResult {
+    const col = Math.max(PHONE_W, (this._width - 40) * (full ? 1 : 0.58));
+    const k = Math.min(full ? MAX_ZOOM * 1.4 : MAX_ZOOM, col / PHONE_W);
+    const avail = this._wideBodyHeight() - (full ? 24 : STRIP_H);
     const sectionH = Math.max(SECTION_H, avail / k);
     return html`<div class="plan-zoom" style=${styleMap({ height: `${sectionH * k}px` })}>
       <div
@@ -926,6 +941,27 @@ export class KageHomeCard extends LitElement {
         ${this._renderPlan(model, floor, room, sectionH)}
       </div>
     </div>`;
+  }
+
+  // Rzut na cały ekran telefonu (dolna część schowana).
+  private _phoneFullH(): number {
+    const h = this._height || (typeof window !== "undefined" ? window.innerHeight : 760);
+    return Math.max(SECTION_H, Math.round(h - 150));
+  }
+
+  // Uchwyt dolnej części (telefon: pozioma kreska pod rzutem; szeroki układ: pionowa
+  // kreska przy prawej krawędzi rzutu).
+  private _sheetGrip(vertical: boolean): TemplateResult {
+    const t = this._t;
+    const hidden = this._stripHidden;
+    return html`<button
+      class="sheet-grip ${vertical ? "vertical" : ""} ${hidden ? "closed" : ""}"
+      aria-label=${`${hidden ? t.show : t.hidePanel}: ${t.showRooms}`}
+      aria-expanded=${hidden ? "false" : "true"}
+      @click=${() => this._setUi(!hidden)}
+    >
+      <span class="bar" aria-hidden="true"></span>
+    </button>`;
   }
 
   // Rzut na telefonie: wyższy na wysokich ekranach (łatwiej o gesty dwoma palcami).
@@ -1527,31 +1563,19 @@ export class KageHomeCard extends LitElement {
   }
 
   private _renderRoomStrip(floor: FloorModel, room: AreaModel | null): TemplateResult {
-    const t = this._t;
-    const hidden = this._stripHidden;
-    const grip = html`<button
-      class="strip-grip ${hidden ? "closed" : ""}"
-      aria-label=${`${hidden ? t.show : t.hidePanel}: ${t.showRooms}`}
-      aria-expanded=${hidden ? "false" : "true"}
-      @click=${() => this._setUi(!hidden)}
-    >
-      <span class="bar" aria-hidden="true"></span>
-    </button>`;
-    if (hidden) return grip;
-    return html`${grip}
-      <nav class="room-strip" aria-label=${floor.name}>
-        ${floor.areas.map((a) => {
-          const sel = a.id === room?.id;
-          const lit = roomGlow(this.hass!, a) > 0;
-          return html`<button
-            class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""}"
-            aria-pressed=${sel ? "true" : "false"}
-            @click=${() => this._pickRoom(floor, a)}
-          >
-            ${lit ? html`<span class="lit-dot" aria-hidden="true"></span>` : nothing}${a.name}
-          </button>`;
-        })}
-      </nav>`;
+    return html`<nav class="room-strip" aria-label=${floor.name}>
+      ${floor.areas.map((a) => {
+        const sel = a.id === room?.id;
+        const lit = roomGlow(this.hass!, a) > 0;
+        return html`<button
+          class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""}"
+          aria-pressed=${sel ? "true" : "false"}
+          @click=${() => this._pickRoom(floor, a)}
+        >
+          ${lit ? html`<span class="lit-dot" aria-hidden="true"></span>` : nothing}${a.name}
+        </button>`;
+      })}
+    </nav>`;
   }
 
   private _fmtTemp(v: number): string {
@@ -3427,7 +3451,7 @@ export class KageHomeCard extends LitElement {
         pointer-events: auto;
         cursor: pointer;
       }
-      .strip-grip {
+      .sheet-grip {
         display: flex;
         justify-content: center;
         align-items: center;
@@ -3439,19 +3463,42 @@ export class KageHomeCard extends LitElement {
         background: transparent;
         cursor: pointer;
       }
-      .strip-grip .bar {
+      .sheet-grip .bar {
         width: 44px;
         height: 4px;
         border-radius: 2px;
         background: rgba(0, 229, 255, 0.35);
         transition: background 0.2s ease;
       }
-      .strip-grip.closed .bar {
+      .sheet-grip.closed .bar {
         background: rgba(0, 229, 255, 0.7);
         box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
       }
-      .strip-grip + .room-strip {
+      .sheet-grip + .room-strip {
         padding-top: 4px;
+      }
+      .col-plan {
+        position: relative;
+      }
+      .sheet-grip.vertical {
+        position: absolute;
+        top: 50%;
+        right: -6px;
+        width: 18px;
+        height: 64px;
+        margin: 0;
+        transform: translateY(-50%);
+        z-index: 30;
+      }
+      .sheet-grip.vertical .bar {
+        width: 4px;
+        height: 44px;
+      }
+      .cols.full {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .cols.full .sheet-grip.vertical {
+        right: 2px;
       }
     `,
   ];
