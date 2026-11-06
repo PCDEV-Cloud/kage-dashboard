@@ -1329,10 +1329,11 @@ export class KageHomeCard extends LitElement {
       const touches = levels[k - 1].level === activeLevel || levels[k].level === activeLevel;
       tops.push(tops[k - 1] + (touches ? 78 : 34));
     }
-    // Wyższy rzut (tablet): warstwy rozsuwamy proporcjonalnie, maks. 2,6 raza.
+    // Wyższy rzut (tablet, pełny ekran): warstwy rozsuwamy proporcjonalnie, maks. 1,8 raza;
+    // nadmiar wysokości zostaje jako margines, a cały stos jest wyśrodkowany.
     const last = tops[tops.length - 1];
     if (sectionH > SECTION_H && last > 0) {
-      const f = Math.min(2.6, (sectionH - LAYER_H - 40) / last);
+      const f = Math.min(1.8, (sectionH - LAYER_H - 40) / last);
       if (f > 1) for (let k = 0; k < tops.length; k += 1) tops[k] = Math.round(tops[k] * f);
     } else if (sectionH < SECTION_H && last > 0) {
       // Niski rzut (telefon w poziomie): piętra ściśnięte, żeby zmieściły się w pionie.
@@ -2377,7 +2378,9 @@ export class KageHomeCard extends LitElement {
         position: absolute;
         inset: 0;
         display: block;
-        perspective: 900px;
+        /* perspektywa od środka płaszczyzny piętra: przesunięte strefy nie wykrzywiają się */
+        perspective: 1600px;
+        perspective-origin: calc(50% + 40px) ${PLANE_H / 2 - 20}px;
         transition:
           transform 0.65s cubic-bezier(0.34, 1.2, 0.64, 1),
           opacity 0.5s ease,
