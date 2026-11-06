@@ -450,21 +450,33 @@ export class KagePlanEditor extends LitElement {
       })}
       ${w.rooms.map((r) => {
         const sel = this._sel?.kind === "room" && this._sel.id === r.id;
-        const [cx, cy] = centroid(r.points);
-        const dashed = new Set(r.dashed ?? []);
         return svg`<polygon
-            class="room ${sel ? "sel" : ""}"
-            points=${r.points.map((p) => p.join(",")).join(" ")}
-            @pointerdown=${(e: PointerEvent) => this._startMove(e, { kind: "room", id: r.id })}
-          ></polygon>
-          ${r.points.map((p, i) => {
-            const q = r.points[(i + 1) % r.points.length]!;
-            return svg`<line
-              class="edge ${sel ? "sel" : ""} ${dashed.has(i) ? "dashed" : ""} ${sel && this._edge === i ? "on" : ""}"
-              x1=${p[0]} y1=${p[1]} x2=${q[0]} y2=${q[1]}
-            ></line>`;
-          })}
-          <text class="lbl" x=${cx} y=${cy}>${names.get(r.id) ?? r.id}</text>`;
+          class="room ${sel ? "sel" : ""}"
+          points=${r.points.map((p) => p.join(",")).join(" ")}
+          @pointerdown=${(e: PointerEvent) => this._startMove(e, { kind: "room", id: r.id })}
+        ></polygon>`;
+      })}
+      ${
+        // Krawędzie po wszystkich wypełnieniach: najpierw przerywane, potem ciągłe, żeby
+        // ściana sąsiedniego pokoju zawsze była widoczna na wierzchu.
+        [true, false].map((pass) =>
+          w.rooms.map((r) => {
+            const sel = this._sel?.kind === "room" && this._sel.id === r.id;
+            const dashed = new Set(r.dashed ?? []);
+            return r.points.map((p, i) => {
+              if (dashed.has(i) !== pass) return nothing;
+              const q = r.points[(i + 1) % r.points.length]!;
+              return svg`<line
+                class="edge ${sel ? "sel" : ""} ${pass ? "dashed" : ""} ${sel && this._edge === i ? "on" : ""}"
+                x1=${p[0]} y1=${p[1]} x2=${q[0]} y2=${q[1]}
+              ></line>`;
+            });
+          }),
+        )
+      }
+      ${w.rooms.map((r) => {
+        const [cx, cy] = centroid(r.points);
+        return svg`<text class="lbl" x=${cx} y=${cy}>${names.get(r.id) ?? r.id}</text>`;
       })}
       ${
         selRoom

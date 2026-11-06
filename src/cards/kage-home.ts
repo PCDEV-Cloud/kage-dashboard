@@ -1431,15 +1431,22 @@ export class KageHomeCard extends LitElement {
               @click=${pickable ? () => this._pickRoom(f, x.a) : nothing}
             ></polygon>`,
           )}
-          ${shapes.map((x) =>
-            x.edges.map(
-              (e) => svg`<line
-                class="redge ${e.dashed ? "dashed" : ""}"
-                x1=${e.p[0]} y1=${e.p[1]} x2=${e.q[0]} y2=${e.q[1]}
-                style=${`stroke:${x.edge}`}
-              ></line>`,
-            ),
-          )}
+          ${
+            // Najpierw krawędzie przerywane, potem ciągłe: ściana sąsiedniego pokoju na wierzchu.
+            [true, false].map((pass) =>
+              shapes.map((x) =>
+                x.edges
+                  .filter((e) => e.dashed === pass)
+                  .map(
+                    (e) => svg`<line
+                      class="redge ${pass ? "dashed" : ""}"
+                      x1=${e.p[0]} y1=${e.p[1]} x2=${e.q[0]} y2=${e.q[1]}
+                      style=${`stroke:${x.edge}`}
+                    ></line>`,
+                  ),
+              ),
+            )
+          }
         </svg>`;
         const walls = svg`<svg class="walls-svg" viewBox=${vb} preserveAspectRatio="none" aria-hidden="true">
           ${shapes.map((x) =>
