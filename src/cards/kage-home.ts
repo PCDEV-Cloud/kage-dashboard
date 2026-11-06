@@ -78,6 +78,9 @@ const MAX_ZOOM = 1.6;
 const HEAD_H = 64; // nagłówek KAGE w układzie szerokim
 const STRIP_H = 60; // pasek pokoi pod rzutem
 const MIN_WIDE_BODY = 520;
+// Telefon w poziomie: układ tabletu od tej szerokości, gdy ekran jest szerszy niż wyższy.
+const LANDSCAPE_MIN = 600;
+const MIN_LANDSCAPE_BODY = 240;
 
 const ICON = {
   bulb: html`<svg
@@ -631,7 +634,7 @@ export class KageHomeCard extends LitElement {
 
   private _pickRoom(floor: FloorModel, area: AreaModel): void {
     this._closeRail();
-    if (this._width >= WIDE_MIN) this._showRooms = true;
+    if (this._isWide()) this._showRooms = true;
     this._floorId = floor.id;
     this._roomId = area.id;
     this._expanded = null;
@@ -651,7 +654,7 @@ export class KageHomeCard extends LitElement {
     }
 
     const ctx = this._context();
-    const wide = this._width >= WIDE_MIN;
+    const wide = this._isWide();
     if (ctx === "away" && !this._showRooms && !wide) return this._renderAway();
 
     let floor = floors.find((f) => f.id === this._floorId) ?? null;
@@ -957,7 +960,8 @@ export class KageHomeCard extends LitElement {
     const col = Math.max(PHONE_W, (this._width - 40) * (full ? 1 : 0.58));
     const k = Math.min(full ? MAX_ZOOM * 1.4 : MAX_ZOOM, col / PHONE_W);
     const avail = this._wideBodyHeight() - (full ? 24 : STRIP_H);
-    const sectionH = Math.max(SECTION_H, avail / k);
+    // Na niskim ekranie (telefon w poziomie) rzut może być niższy niż na telefonie w pionie.
+    const sectionH = Math.max(this._landscape() ? 150 : SECTION_H, avail / k);
     return html`<div class="plan-zoom" style=${styleMap({ height: `${sectionH * k}px` })}>
       <div
         class="plan-inner"
@@ -996,9 +1000,25 @@ export class KageHomeCard extends LitElement {
   }
 
   // Wysokość obszaru pod nagłówkiem w układzie szerokim (minimum jak na niskim laptopie).
+  private _viewH(): number {
+    return this._height || (typeof window !== "undefined" ? window.innerHeight : 800);
+  }
+
+  // Niski ekran w poziomie (telefon): mniejsze minimum wysokości, żeby nie trzeba przewijać.
+  private _landscape(): boolean {
+    const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+    return this._width >= LANDSCAPE_MIN && this._width > vh * 1.2;
+  }
+
+  // Układ tabletu: szeroki ekran albo telefon w poziomie.
+  private _isWide(): boolean {
+    return this._width >= WIDE_MIN || this._landscape();
+  }
+
   private _wideBodyHeight(): number {
-    const h = this._height || (typeof window !== "undefined" ? window.innerHeight : 800);
-    return Math.max(MIN_WIDE_BODY, h - HEAD_H - 24);
+    const min =
+      this._landscape() && this._width < WIDE_MIN + 200 ? MIN_LANDSCAPE_BODY : MIN_WIDE_BODY;
+    return Math.max(min, this._viewH() - HEAD_H - 24);
   }
 
   private _context(): Context {
@@ -1043,7 +1063,7 @@ export class KageHomeCard extends LitElement {
             : nothing}
         </div>
         <span class="head-right">
-          ${this._width >= WIDE_MIN && this.hass!.user?.is_admin && !this._editing
+          ${this._isWide() && this.hass!.user?.is_admin && !this._editing
             ? html`<button class="edit-plan cut-s ctl mono" @click=${() => (this._editing = true)}>
                 ${ICON.pencil} ${t.editPlan}
               </button>`
@@ -1198,7 +1218,7 @@ export class KageHomeCard extends LitElement {
         ${people.map((p) => html`<span class="person cut-s">${p}</span>`)}
       </section>
 
-      ${this._width >= WIDE_MIN
+      ${this._isWide()
         ? nothing
         : html`<button class="rooms-link mono rise" @click=${() => (this._showRooms = true)}>
             ${t.showRooms} ${ICON.right}
@@ -1314,6 +1334,10 @@ export class KageHomeCard extends LitElement {
     if (sectionH > SECTION_H && last > 0) {
       const f = Math.min(2.6, (sectionH - LAYER_H - 40) / last);
       if (f > 1) for (let k = 0; k < tops.length; k += 1) tops[k] = Math.round(tops[k] * f);
+    } else if (sectionH < SECTION_H && last > 0) {
+      // Niski rzut (telefon w poziomie): piętra ściśnięte, żeby zmieściły się w pionie.
+      const f = Math.max(0.3, (sectionH - LAYER_H + 10) / last);
+      for (let k = 0; k < tops.length; k += 1) tops[k] = Math.round(tops[k] * f);
     }
     const offset = Math.round((sectionH - (tops[tops.length - 1] + LAYER_H)) / 2);
     const railStep = Math.min(74, (sectionH - 12) / levels.length);
@@ -1567,7 +1591,12 @@ export class KageHomeCard extends LitElement {
           class="floor-card cut-s ctl ${isActive ? "active" : ""} ${activeLv && !isActive
             ? "level"
             : ""} ${cur.outdoor ? "outdoor" : ""} ${open ? "" : "tucked"}"
-          style=${styleMap({ top: `${top}px`, left: `${12 + j * 114}px` })}
+          style=${styleMap({
+            top: `${top}px`,
+            left: `${12 + j * 114}px`,
+            // niski rzut (telefon w poziomie): karty niższe, żeby na siebie nie nachodziły
+            height: `${Math.min(62, railStep - 6)}px`,
+          })}
           aria-pressed=${isActive ? "true" : "false"}
           aria-expanded=${open ? "true" : "false"}
           aria-label=${cur.name}
@@ -3333,6 +3362,9 @@ export class KageHomeCard extends LitElement {
         padding-top: 4px;
         overflow-y: auto;
         scrollbar-width: thin;
+      }
+      .col-side > * {
+        flex-shrink: 0;
       }
       .col-side > .panel {
         flex: 1 0 auto;
