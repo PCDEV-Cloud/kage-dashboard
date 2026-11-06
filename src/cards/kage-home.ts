@@ -1531,7 +1531,7 @@ export class KageHomeCard extends LitElement {
           style=${styleMap({
             "--ox": `${ox}px`,
             "--oy": `${oy}px`,
-            transform: `scale(${isCur ? 1 : 0.9})`,
+            // bez skalowania: strefy jednego poziomu muszą leżeć w tej samej płaszczyźnie
             opacity: isCur ? "1" : "0.5",
             filter: isCur ? "none" : "blur(2px)",
           })}
