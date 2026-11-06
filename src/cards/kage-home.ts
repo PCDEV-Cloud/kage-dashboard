@@ -352,6 +352,7 @@ function roofFaces(w: number, h: number, roof: Roof): RoofFace[] {
   return faces;
 }
 
+const RAIL_AUTO_HIDE_MS = 4000;
 const TILT_DEFAULT = 62;
 const TILT_MIN = 0;
 const TILT_MAX = 150;
@@ -385,7 +386,7 @@ export class KageHomeCard extends LitElement {
     _rot: { state: true },
     _tx: { state: true },
     _tilt: { state: true },
-    _railHidden: { state: true },
+    _railOpen: { state: true },
     _stripHidden: { state: true },
     _ty: { state: true },
     _saving: { state: true },
@@ -421,7 +422,8 @@ export class KageHomeCard extends LitElement {
   // Pochylenie widoku: 0° = rzut z góry, 62° = domyślny, 90° = z boku, powyżej 90° = od spodu.
   private _tilt = TILT_DEFAULT;
   // Schowane karty pięter (z lewej) i pasek pomieszczeń; zapamiętywane dla użytkownika.
-  private _railHidden = false;
+  private _railOpen = false;
+  private _railTimer?: ReturnType<typeof setTimeout>;
   private _stripHidden = false;
   private _saving = false;
   private _saveError = "";
@@ -524,11 +526,10 @@ export class KageHomeCard extends LitElement {
     return `kage:${this.hass?.user?.id ?? "anon"}:ui`;
   }
 
-  private _setUi(rail: boolean, strip: boolean): void {
-    this._railHidden = rail;
+  private _setUi(strip: boolean): void {
     this._stripHidden = strip;
     try {
-      localStorage.setItem(this._uiKey(), JSON.stringify({ rail, strip }));
+      localStorage.setItem(this._uiKey(), JSON.stringify({ strip }));
     } catch {
       /* bez pamięci */
     }
@@ -546,8 +547,7 @@ export class KageHomeCard extends LitElement {
       }
       const ui = localStorage.getItem(this._uiKey());
       if (ui) {
-        const u = JSON.parse(ui) as { rail?: boolean; strip?: boolean };
-        this._railHidden = !!u.rail;
+        const u = JSON.parse(ui) as { strip?: boolean };
         this._stripHidden = !!u.strip;
       }
       const d = sessionStorage.getItem("kage:dismissed");
@@ -601,7 +601,19 @@ export class KageHomeCard extends LitElement {
     if (this.hass) void callService(this.hass, domain, service, data);
   }
 
+  private _openRail(): void {
+    this._railOpen = true;
+    clearTimeout(this._railTimer);
+    this._railTimer = setTimeout(() => this._closeRail(), RAIL_AUTO_HIDE_MS);
+  }
+
+  private _closeRail(): void {
+    clearTimeout(this._railTimer);
+    if (this._railOpen) this._railOpen = false;
+  }
+
   private _goFloor(floor: FloorModel): void {
+    this._closeRail();
     this._floorId = floor.id;
     const keep = floor.areas.some((a) => a.id === this._roomId);
     if (!keep) this._roomId = this._bestRoom(floor)?.id ?? null;
@@ -610,6 +622,7 @@ export class KageHomeCard extends LitElement {
   }
 
   private _pickRoom(floor: FloorModel, area: AreaModel): void {
+    this._closeRail();
     if (this._width >= WIDE_MIN) this._showRooms = true;
     this._floorId = floor.id;
     this._roomId = area.id;
@@ -769,6 +782,7 @@ export class KageHomeCard extends LitElement {
   private _gestureDown(e: PointerEvent): void {
     if (this._pinch || (e.pointerType === "mouse" && e.button !== 0)) return;
     if ((e.target as Element).closest?.("button")) return; // karty pięter, przycisk boczny
+    this._closeRail();
     this._syncLive();
     this._drag = {
       id: e.pointerId,
@@ -809,6 +823,7 @@ export class KageHomeCard extends LitElement {
     const el = this._planEl();
     if (!el || e.touches.length !== 2 || !e.composedPath().includes(el)) return;
     e.preventDefault();
+    this._closeRail();
     if (this._drag) {
       this._live.r = this._drag.r; // anuluj obrót jednym palcem
       this._drag = null;
@@ -873,6 +888,7 @@ export class KageHomeCard extends LitElement {
   private _wheel(e: WheelEvent): void {
     if (!e.ctrlKey && !e.shiftKey) return;
     e.preventDefault();
+    this._closeRail();
     this._syncLive();
     if (e.ctrlKey) {
       const el = e.currentTarget as HTMLElement;
@@ -1404,41 +1420,40 @@ export class KageHomeCard extends LitElement {
       </div>`;
     });
 
+    // Karty pięter: domyślnie wąskie zakładki z numerem piętra (aktywna podświetlona,
+    // kropka = zapalone światło). Stuknięcie wysuwa wszystkie karty; chowają się same po
+    // chwili albo gdy zaczyna się inna czynność (obrót rzutu, wybór pokoju, zmiana piętra).
+    const open = this._railOpen;
     const rail = levels.map((lv, k) => {
       const group = lv.floors;
       const activeLv = lv.level === activeLevel;
       const cur = activeLv ? floor : (group[viewCol] ?? group[0]);
       const lit = cur.areas.filter((a) => roomGlow(this.hass!, a) > 0).length;
       const top = sectionH - 6 - (levels.length - k) * railStep + 12;
-      const tucked = this._railHidden;
+      const short =
+        lv.level !== null && lv.level !== undefined
+          ? String(lv.level)
+          : String(levels.length - 1 - k);
       return html`<button
         class="floor-card cut-s ctl ${activeLv ? "active" : ""} ${cur.outdoor
           ? "outdoor"
-          : ""} ${tucked ? "tucked" : ""}"
+          : ""} ${open ? "" : "tucked"}"
         style=${styleMap({ top: `${top}px` })}
         aria-pressed=${activeLv ? "true" : "false"}
-        aria-label=${tucked ? `${t.show}: ${cur.name}` : cur.name}
-        @click=${() => (tucked ? this._setUi(false, this._stripHidden) : this._goFloor(cur))}
+        aria-expanded=${open ? "true" : "false"}
+        aria-label=${cur.name}
+        @click=${() => (open ? this._goFloor(cur) : this._openRail())}
       >
         <span class="fname mono">${cur.name.toLocaleUpperCase(this._lang)}</span>
         <span class="fmeta">
           <span class="badge cut-s mono ${lit ? "lit" : ""}">${lit}</span>
           <span class="flabel mono">${t.floorLit}</span>
         </span>
+        <span class="fshort mono" aria-hidden="true"
+          >${short}${lit ? html`<i class="fdot"></i>` : nothing}</span
+        >
       </button>`;
     });
-
-    // Uchwyt chowania kart pięter: przy prawej krawędzi kart, na wysokości ich środka.
-    const railMid = sectionH - 6 - (levels.length * railStep) / 2 + 12 + 31 - railStep / 2 - 16;
-    const railToggle = html`<button
-      class="rail-toggle cut-s ctl ${this._railHidden ? "tucked" : ""}"
-      style=${styleMap({ top: `${railMid}px` })}
-      aria-label=${`${this._railHidden ? t.show : t.hidePanel}: ${t.floorsLabel}`}
-      aria-expanded=${this._railHidden ? "false" : "true"}
-      @click=${() => this._setUi(!this._railHidden, this._stripHidden)}
-    >
-      ${this._railHidden ? ICON.right : ICON.left}
-    </button>`;
 
     let side: TemplateResult | typeof nothing = nothing;
     if (activeGroup.length > 1) {
@@ -1480,7 +1495,7 @@ export class KageHomeCard extends LitElement {
       @wheel=${(e: WheelEvent) => this._wheel(e)}
     >
       <div class="view3d">${layers}</div>
-      ${rail} ${railToggle} ${side}
+      ${rail} ${side}
       ${changed
         ? html`<button
             class="view-reset cut-s ctl mono"
@@ -1518,7 +1533,7 @@ export class KageHomeCard extends LitElement {
       class="strip-grip ${hidden ? "closed" : ""}"
       aria-label=${`${hidden ? t.show : t.hidePanel}: ${t.showRooms}`}
       aria-expanded=${hidden ? "false" : "true"}
-      @click=${() => this._setUi(this._railHidden, !hidden)}
+      @click=${() => this._setUi(!hidden)}
     >
       <span class="bar" aria-hidden="true"></span>
     </button>`;
@@ -3364,32 +3379,49 @@ export class KageHomeCard extends LitElement {
           opacity 0.3s ease;
       }
       .floor-card.tucked {
-        transform: translateX(-88px);
-        opacity: 0.85;
+        transform: translateX(-80px);
         cursor: pointer;
+      }
+      .floor-card .fname,
+      .floor-card .fmeta {
+        transition: opacity 0.2s ease;
       }
       .floor-card.tucked .fname,
-      .floor-card.tucked .flabel {
+      .floor-card.tucked .fmeta {
         opacity: 0;
       }
-      .rail-toggle {
+      .fshort {
         position: absolute;
-        left: 124px;
-        z-index: 21;
-        width: 22px;
-        height: 32px;
-        padding: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        width: 28px;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        border: 1px solid rgba(0, 229, 255, 0.3);
-        background: rgba(6, 8, 14, 0.75);
-        color: var(--kage-accent);
-        cursor: pointer;
-        transition: left 0.35s cubic-bezier(0.34, 1.2, 0.64, 1);
+        gap: 5px;
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--kage-ink-muted);
+        opacity: 0;
+        transition: opacity 0.2s ease;
       }
-      .rail-toggle.tucked {
-        left: 36px;
+      .floor-card.tucked .fshort {
+        opacity: 1;
+      }
+      .floor-card.active .fshort {
+        color: var(--kage-accent);
+      }
+      .floor-card.active.outdoor .fshort {
+        color: var(--kage-climate);
+      }
+      .fdot {
+        width: 6px;
+        height: 6px;
+        background: var(--kage-light, #ffb300);
+        box-shadow: 0 0 6px rgba(255, 179, 0, 0.9);
+        transform: rotate(45deg);
       }
       .plane.go {
         pointer-events: auto;
