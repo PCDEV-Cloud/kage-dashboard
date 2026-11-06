@@ -60,8 +60,7 @@ import "./plan-editor";
 const PLANE_W_C = 190;
 const PLANE_W = PLANE_W_C;
 // Odstęp stref z tego samego poziomu na siatce 3 × 3 (piksele płaszczyzny, przed obrotem).
-const ZONE_STEP_X = PLANE_W_C + 26;
-const ZONE_STEP_Y = 152 + 26;
+const ZONE_GAP = 26;
 const PLANE_H = 152;
 const LAYER_H = 113;
 const SECTION_H = 232;
@@ -944,9 +943,28 @@ export class KageHomeCard extends LitElement {
     activeGroup: FloorModel[],
     viewed: FloorModel,
   ): [number, number] {
-    const [fx, fy] = SIDE_VECTOR[this._sides(group).get(f.id) ?? "center"];
-    const [vx, vy] = SIDE_VECTOR[this._sides(activeGroup).get(viewed.id) ?? "center"];
-    return [(fx - vx) * ZONE_STEP_X, (fy - vy) * ZONE_STEP_Y];
+    const [fx, fy] = this._zonePos(group, f);
+    // Poziom oglądanej strefy wyznacza środek widoku; inne poziomy przesuwają się tak samo.
+    const [vx, vy] = this._zonePos(activeGroup, viewed);
+    return [fx - vx, fy - vy];
+  }
+
+  // Wysokość płaszczyzny piętra (px) z proporcji jego siatki.
+  private _planeH(f: FloorModel): number {
+    const plan = this._resolved(f);
+    return Math.round(Math.min(190, Math.max(100, (PLANE_W * plan.rows) / plan.cols)));
+  }
+
+  // Lewy górny róg strefy w układzie płaszczyzny, względem strefy środkowej poziomu.
+  // Strefy mają różne wysokości, więc odstępy liczymy z ich rzeczywistych wymiarów.
+  private _zonePos(group: FloorModel[], f: FloorModel): [number, number] {
+    const sides = this._sides(group);
+    const [vx, vy] = SIDE_VECTOR[sides.get(f.id) ?? "center"];
+    const center = group.find((x) => sides.get(x.id) === "center");
+    const hc = center ? this._planeH(center) : PLANE_H;
+    const x = vx * (PLANE_W + ZONE_GAP);
+    const y = vy < 0 ? -(this._planeH(f) + ZONE_GAP) : vy > 0 ? hc + ZONE_GAP : 0;
+    return [x, y];
   }
 
   // Rzut w układzie szerokim: plany pięter powiększone do szerokości kolumny,
@@ -1354,7 +1372,7 @@ export class KageHomeCard extends LitElement {
       const planes = group.map((f) => {
         const isCur = f === viewedHere;
         const plan = this._resolved(f);
-        const planeH = Math.round(Math.min(190, Math.max(100, (PLANE_W * plan.rows) / plan.cols)));
+        const planeH = this._planeH(f);
         const glowOn = activeLv && isCur;
         const planeStyle = styleMap({
           "--grid": f.outdoor ? "rgba(61,255,162,.15)" : "rgba(0,229,255,.15)",
@@ -2394,6 +2412,9 @@ export class KageHomeCard extends LitElement {
         height: ${PLANE_H}px;
         display: block;
         transform-style: preserve-3d;
+        /* wspólny punkt obrotu dla wszystkich płaszczyzn (niezależnie od ich wysokości),
+           żeby strefy jednego poziomu leżały w tej samej płaszczyźnie */
+        transform-origin: ${PLANE_W / 2}px ${PLANE_H / 2}px;
         transform: rotateX(var(--tilt, 62deg)) rotateZ(calc(-42deg + var(--rot, 0deg)))
           translate(var(--ox, 0px), var(--oy, 0px));
         transition: transform 0.6s cubic-bezier(0.34, 1.2, 0.64, 1);
