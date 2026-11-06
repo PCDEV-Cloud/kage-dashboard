@@ -111,6 +111,9 @@ export interface Strings {
   showRooms: string;
   backToOverview: string;
   resetView: string;
+  hidePanel: string;
+  show: string;
+  floorsLabel: string;
 
   // Edytor rzutu
   editPlan: string;

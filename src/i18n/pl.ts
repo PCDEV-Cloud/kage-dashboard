@@ -124,6 +124,9 @@ export const pl: Strings = {
   showRooms: "Pomieszczenia",
   backToOverview: "Przegląd",
   resetView: "Przywróć widok",
+  hidePanel: "Schowaj",
+  show: "Pokaż",
+  floorsLabel: "Piętra",
   editPlan: "Edytuj rzut",
   editorHint:
     "Przeciągnij pokój, aby go przesunąć; przeciągnij narożnik, aby zmienić kształt; plus na krawędzi dodaje narożnik.",

@@ -118,6 +118,9 @@ export const en: Strings = {
   showRooms: "Rooms",
   backToOverview: "Overview",
   resetView: "Reset view",
+  hidePanel: "Hide",
+  show: "Show",
+  floorsLabel: "Floors",
   editPlan: "Edit floor plan",
   editorHint:
     "Drag a room to move it, drag a corner to reshape it, tap + on an edge to add a corner.",

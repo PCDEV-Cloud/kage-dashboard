@@ -385,6 +385,8 @@ export class KageHomeCard extends LitElement {
     _rot: { state: true },
     _tx: { state: true },
     _tilt: { state: true },
+    _railHidden: { state: true },
+    _stripHidden: { state: true },
     _ty: { state: true },
     _saving: { state: true },
     _saveError: { state: true },
@@ -418,6 +420,9 @@ export class KageHomeCard extends LitElement {
   private _ty = 0;
   // Pochylenie widoku: 0° = rzut z góry, 62° = domyślny, 90° = z boku, powyżej 90° = od spodu.
   private _tilt = TILT_DEFAULT;
+  // Schowane karty pięter (z lewej) i pasek pomieszczeń; zapamiętywane dla użytkownika.
+  private _railHidden = false;
+  private _stripHidden = false;
   private _saving = false;
   private _saveError = "";
   private _resize?: ResizeObserver;
@@ -515,6 +520,20 @@ export class KageHomeCard extends LitElement {
     return `kage:${this.hass?.user?.id ?? "anon"}:place`;
   }
 
+  private _uiKey(): string {
+    return `kage:${this.hass?.user?.id ?? "anon"}:ui`;
+  }
+
+  private _setUi(rail: boolean, strip: boolean): void {
+    this._railHidden = rail;
+    this._stripHidden = strip;
+    try {
+      localStorage.setItem(this._uiKey(), JSON.stringify({ rail, strip }));
+    } catch {
+      /* bez pamięci */
+    }
+  }
+
   private _restore(): void {
     if (this._restored) return;
     this._restored = true;
@@ -524,6 +543,12 @@ export class KageHomeCard extends LitElement {
         const saved = JSON.parse(raw) as { floor?: string; room?: string };
         this._floorId = saved.floor ?? null;
         this._roomId = saved.room ?? null;
+      }
+      const ui = localStorage.getItem(this._uiKey());
+      if (ui) {
+        const u = JSON.parse(ui) as { rail?: boolean; strip?: boolean };
+        this._railHidden = !!u.rail;
+        this._stripHidden = !!u.strip;
       }
       const d = sessionStorage.getItem("kage:dismissed");
       if (d) this._dismissed = JSON.parse(d) as string[];
@@ -1346,7 +1371,10 @@ export class KageHomeCard extends LitElement {
             filter: isCur ? "none" : "blur(2px)",
           })}
         >
-          <span class="plane" style=${planeStyle}
+          <span
+            class="plane ${pickable ? "" : "go"}"
+            style=${planeStyle}
+            @click=${pickable ? nothing : () => this._goFloor(f)}
             >${glowLayer} ${base} ${walls} ${tags} ${roof}</span
           >
         </span>`;
@@ -1382,11 +1410,15 @@ export class KageHomeCard extends LitElement {
       const cur = activeLv ? floor : (group[viewCol] ?? group[0]);
       const lit = cur.areas.filter((a) => roomGlow(this.hass!, a) > 0).length;
       const top = sectionH - 6 - (levels.length - k) * railStep + 12;
+      const tucked = this._railHidden;
       return html`<button
-        class="floor-card cut-s ctl ${activeLv ? "active" : ""} ${cur.outdoor ? "outdoor" : ""}"
+        class="floor-card cut-s ctl ${activeLv ? "active" : ""} ${cur.outdoor
+          ? "outdoor"
+          : ""} ${tucked ? "tucked" : ""}"
         style=${styleMap({ top: `${top}px` })}
         aria-pressed=${activeLv ? "true" : "false"}
-        @click=${() => this._goFloor(cur)}
+        aria-label=${tucked ? `${t.show}: ${cur.name}` : cur.name}
+        @click=${() => (tucked ? this._setUi(false, this._stripHidden) : this._goFloor(cur))}
       >
         <span class="fname mono">${cur.name.toLocaleUpperCase(this._lang)}</span>
         <span class="fmeta">
@@ -1395,6 +1427,18 @@ export class KageHomeCard extends LitElement {
         </span>
       </button>`;
     });
+
+    // Uchwyt chowania kart pięter: przy prawej krawędzi kart, na wysokości ich środka.
+    const railMid = sectionH - 6 - (levels.length * railStep) / 2 + 12 + 31 - railStep / 2 - 16;
+    const railToggle = html`<button
+      class="rail-toggle cut-s ctl ${this._railHidden ? "tucked" : ""}"
+      style=${styleMap({ top: `${railMid}px` })}
+      aria-label=${`${this._railHidden ? t.show : t.hidePanel}: ${t.floorsLabel}`}
+      aria-expanded=${this._railHidden ? "false" : "true"}
+      @click=${() => this._setUi(!this._railHidden, this._stripHidden)}
+    >
+      ${this._railHidden ? ICON.right : ICON.left}
+    </button>`;
 
     let side: TemplateResult | typeof nothing = nothing;
     if (activeGroup.length > 1) {
@@ -1436,7 +1480,7 @@ export class KageHomeCard extends LitElement {
       @wheel=${(e: WheelEvent) => this._wheel(e)}
     >
       <div class="view3d">${layers}</div>
-      ${rail} ${side}
+      ${rail} ${railToggle} ${side}
       ${changed
         ? html`<button
             class="view-reset cut-s ctl mono"
@@ -1468,19 +1512,31 @@ export class KageHomeCard extends LitElement {
   }
 
   private _renderRoomStrip(floor: FloorModel, room: AreaModel | null): TemplateResult {
-    return html`<nav class="room-strip" aria-label=${floor.name}>
-      ${floor.areas.map((a) => {
-        const sel = a.id === room?.id;
-        const lit = roomGlow(this.hass!, a) > 0;
-        return html`<button
-          class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""}"
-          aria-pressed=${sel ? "true" : "false"}
-          @click=${() => this._pickRoom(floor, a)}
-        >
-          ${lit ? html`<span class="lit-dot" aria-hidden="true"></span>` : nothing}${a.name}
-        </button>`;
-      })}
-    </nav>`;
+    const t = this._t;
+    const hidden = this._stripHidden;
+    const grip = html`<button
+      class="strip-grip ${hidden ? "closed" : ""}"
+      aria-label=${`${hidden ? t.show : t.hidePanel}: ${t.showRooms}`}
+      aria-expanded=${hidden ? "false" : "true"}
+      @click=${() => this._setUi(this._railHidden, !hidden)}
+    >
+      <span class="bar" aria-hidden="true"></span>
+    </button>`;
+    if (hidden) return grip;
+    return html`${grip}
+      <nav class="room-strip" aria-label=${floor.name}>
+        ${floor.areas.map((a) => {
+          const sel = a.id === room?.id;
+          const lit = roomGlow(this.hass!, a) > 0;
+          return html`<button
+            class="room-chip cut-s ctl ${sel ? "sel" : ""} ${lit ? "lit" : ""}"
+            aria-pressed=${sel ? "true" : "false"}
+            @click=${() => this._pickRoom(floor, a)}
+          >
+            ${lit ? html`<span class="lit-dot" aria-hidden="true"></span>` : nothing}${a.name}
+          </button>`;
+        })}
+      </nav>`;
   }
 
   private _fmtTemp(v: number): string {
@@ -3299,6 +3355,71 @@ export class KageHomeCard extends LitElement {
         background: rgba(6, 8, 14, 0.8);
         color: var(--kage-accent);
         cursor: pointer;
+      }
+
+      /* --- chowane karty pięter i pasek pomieszczeń --- */
+      .floor-card {
+        transition:
+          transform 0.35s cubic-bezier(0.34, 1.2, 0.64, 1),
+          opacity 0.3s ease;
+      }
+      .floor-card.tucked {
+        transform: translateX(-88px);
+        opacity: 0.85;
+        cursor: pointer;
+      }
+      .floor-card.tucked .fname,
+      .floor-card.tucked .flabel {
+        opacity: 0;
+      }
+      .rail-toggle {
+        position: absolute;
+        left: 124px;
+        z-index: 21;
+        width: 22px;
+        height: 32px;
+        padding: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid rgba(0, 229, 255, 0.3);
+        background: rgba(6, 8, 14, 0.75);
+        color: var(--kage-accent);
+        cursor: pointer;
+        transition: left 0.35s cubic-bezier(0.34, 1.2, 0.64, 1);
+      }
+      .rail-toggle.tucked {
+        left: 36px;
+      }
+      .plane.go {
+        pointer-events: auto;
+        cursor: pointer;
+      }
+      .strip-grip {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        width: 100%;
+        height: 18px;
+        margin-top: 4px;
+        padding: 0;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+      }
+      .strip-grip .bar {
+        width: 44px;
+        height: 4px;
+        border-radius: 2px;
+        background: rgba(0, 229, 255, 0.35);
+        transition: background 0.2s ease;
+      }
+      .strip-grip.closed .bar {
+        background: rgba(0, 229, 255, 0.7);
+        box-shadow: 0 0 8px rgba(0, 229, 255, 0.5);
+      }
+      .strip-grip + .room-strip {
+        padding-top: 4px;
       }
     `,
   ];
