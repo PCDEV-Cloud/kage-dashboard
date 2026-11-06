@@ -5,7 +5,18 @@ import type { FloorModel } from "./model";
 // edytowany w KAGE przez administratora. Brak wpisu dla piętra = układ automatyczny.
 
 export type Pt = [number, number];
-export type Side = "right" | "left" | "front" | "back";
+// Położenie strefy na swoim poziomie, na siatce 3 × 3 widzianej jak rzut w edytorze
+// („back” = góra rzutu, „front” = dół). Poprzednie wartości (right, left, front, back) zostają.
+export type Side =
+  | "center"
+  | "left"
+  | "right"
+  | "back"
+  | "front"
+  | "back-left"
+  | "back-right"
+  | "front-left"
+  | "front-right";
 
 export interface FloorPlanConfig {
   cols?: number;
@@ -81,7 +92,7 @@ export interface ResolvedRoom {
 export interface ResolvedPlan {
   cols: number;
   rows: number;
-  side: Side;
+  side: Side | null; // null = domyślnie (pierwsza strefa w środku, kolejne dookoła)
   roof: Roof | null;
   auto: boolean;
   rooms: ResolvedRoom[];
@@ -91,7 +102,51 @@ export interface ResolvedPlan {
 
 export const DEFAULT_COLS = 20;
 export const DEFAULT_ROWS = 16;
-export const SIDES: Side[] = ["right", "left", "front", "back"];
+// Kolejność jak na siatce 3 × 3 (wierszami od góry rzutu).
+export const SIDES: Side[] = [
+  "back-left",
+  "back",
+  "back-right",
+  "left",
+  "center",
+  "right",
+  "front-left",
+  "front",
+  "front-right",
+];
+
+// Wektor kratki dla położenia: x w prawo, y w dół rzutu.
+export const SIDE_VECTOR: Record<Side, [number, number]> = {
+  center: [0, 0],
+  left: [-1, 0],
+  right: [1, 0],
+  back: [0, -1],
+  front: [0, 1],
+  "back-left": [-1, -1],
+  "back-right": [1, -1],
+  "front-left": [-1, 1],
+  "front-right": [1, 1],
+};
+
+const DEFAULT_ORDER: Side[] = [
+  "center",
+  "right",
+  "left",
+  "back",
+  "front",
+  "back-right",
+  "back-left",
+  "front-right",
+  "front-left",
+];
+
+// Położenia stref jednego poziomu: zapisane albo domyślne (pierwsza w środku, kolejne
+// w wolnych kratkach dookoła).
+export function groupSides(sides: (Side | null)[]): Side[] {
+  const taken = new Set(sides.filter((x): x is Side => !!x));
+  const free = DEFAULT_ORDER.filter((x) => !taken.has(x));
+  return sides.map((x) => x ?? free.shift() ?? "right");
+}
 
 const ATTIC = /attic|loft|poddasz|strych|阁楼/i;
 
@@ -204,7 +259,7 @@ export function resolvePlan(
   const cfg = plan?.floors?.[floor.id];
   const cols = cfg?.cols && cfg.cols >= 4 ? Math.round(cfg.cols) : DEFAULT_COLS;
   const rows = cfg?.rows && cfg.rows >= 4 ? Math.round(cfg.rows) : DEFAULT_ROWS;
-  const side = cfg?.side && SIDES.includes(cfg.side) ? cfg.side : "right";
+  const side = cfg?.side && SIDES.includes(cfg.side) ? cfg.side : null;
   const roof = resolveRoof(cfg?.roof, isAtticFloor(floor));
   const voids = (cfg?.voids ?? []).filter(validPts);
   if (!cfg?.rooms) {
@@ -244,7 +299,7 @@ export function writeFloor(
     };
     if (floor.cols !== DEFAULT_COLS) cfg.cols = floor.cols;
     if (floor.rows !== DEFAULT_ROWS) cfg.rows = floor.rows;
-    if (floor.side !== "right") cfg.side = floor.side;
+    if (floor.side) cfg.side = floor.side;
     cfg.roof = floor.roof ?? false;
     if (floor.voids.length) cfg.voids = floor.voids;
     floors[floorId] = cfg;

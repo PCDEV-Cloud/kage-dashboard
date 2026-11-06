@@ -33,7 +33,9 @@ import {
   type SecureStep,
 } from "../engine/issues";
 import {
+  SIDE_VECTOR,
   centroid,
+  groupSides,
   resolvePlan,
   type PlanConfig,
   type ResolvedPlan,
@@ -50,14 +52,11 @@ import "./plan-editor";
 
 // Ekran „W domu” (telefon, motyw Neon): rzut warstwowy, panel pokoju, sceny.
 
-const PLANE_W = 190;
-// Przesunięcie płaszczyzny strefy z tego samego poziomu względem budynku (piksele ekranu).
-const SIDE_OFFSET: Record<Side, [number, number]> = {
-  right: [212, 0],
-  left: [-212, 0],
-  front: [-150, 64],
-  back: [150, -64],
-};
+const PLANE_W_C = 190;
+const PLANE_W = PLANE_W_C;
+// Odstęp stref z tego samego poziomu na siatce 3 × 3 (piksele płaszczyzny, przed obrotem).
+const ZONE_STEP_X = PLANE_W_C + 26;
+const ZONE_STEP_Y = 152 + 26;
 const PLANE_H = 152;
 const LAYER_H = 113;
 const SECTION_H = 232;
@@ -912,13 +911,30 @@ export class KageHomeCard extends LitElement {
     this._commitView();
   }
 
-  // Położenie płaszczyzny piętra `f` w grupie jednego poziomu, względem oglądanej (viewCol).
-  private _sideOffset(group: FloorModel[], f: FloorModel, viewCol: number): [number, number] {
-    const pos = (x: FloorModel): [number, number] =>
-      group.indexOf(x) === 0 ? [0, 0] : SIDE_OFFSET[this._resolved(x).side];
-    const [fx, fy] = pos(f);
-    const [vx, vy] = pos(group[viewCol] ?? group[0]!);
-    return [fx - vx, fy - vy];
+  // Położenia stref poziomu na siatce 3 × 3 (zapisane w rzucie albo domyślne).
+  private _sides(group: FloorModel[]): Map<string, Side> {
+    const sides = groupSides(group.map((x) => this._resolved(x).side));
+    return new Map(group.map((x, i) => [x.id, sides[i]!]));
+  }
+
+  // Strefa oglądana na danym poziomie: na aktywnym wybrana, na pozostałych ta w środku.
+  private _viewedIn(group: FloorModel[], active: FloorModel | null): FloorModel {
+    if (active && group.includes(active)) return active;
+    const sides = this._sides(group);
+    return group.find((x) => sides.get(x.id) === "center") ?? group[0]!;
+  }
+
+  // Przesunięcie płaszczyzny strefy `f` względem strefy oglądanej na aktywnym poziomie
+  // (w pikselach płaszczyzny, więc obraca się i pochyla razem z rzutem).
+  private _zoneOffset(
+    group: FloorModel[],
+    f: FloorModel,
+    activeGroup: FloorModel[],
+    viewed: FloorModel,
+  ): [number, number] {
+    const [fx, fy] = SIDE_VECTOR[this._sides(group).get(f.id) ?? "center"];
+    const [vx, vy] = SIDE_VECTOR[this._sides(activeGroup).get(viewed.id) ?? "center"];
+    return [(fx - vx) * ZONE_STEP_X, (fy - vy) * ZONE_STEP_Y];
   }
 
   // Rzut w układzie szerokim: plany pięter powiększone do szerokości kolumny,
@@ -1278,7 +1294,6 @@ export class KageHomeCard extends LitElement {
     const levels = model.levels;
     const activeLevel = floor.level;
     const activeGroup = levels.find((l) => l.level === activeLevel)!.floors;
-    const viewCol = Math.max(0, activeGroup.indexOf(floor));
 
     const tops = [0];
     for (let k = 1; k < levels.length; k += 1) {
@@ -1301,9 +1316,9 @@ export class KageHomeCard extends LitElement {
     const layers = levels.map((lv, k) => {
       const group = lv.floors;
       const activeLv = lv.level === activeLevel;
-      const planes = group.map((f, j) => {
-        const d = j - viewCol;
-        const isCur = d === 0;
+      const viewedHere = this._viewedIn(group, activeLv ? floor : null);
+      const planes = group.map((f) => {
+        const isCur = f === viewedHere;
         const plan = this._resolved(f);
         const planeH = Math.round(Math.min(190, Math.max(100, (PLANE_W * plan.rows) / plan.cols)));
         const glowOn = activeLv && isCur;
@@ -1414,11 +1429,13 @@ export class KageHomeCard extends LitElement {
               )}</span
             >`
           : nothing;
-        const [ox, oy] = this._sideOffset(group, f, viewCol);
+        const [ox, oy] = this._zoneOffset(group, f, activeGroup, floor);
         return html`<span
           class="slide"
           style=${styleMap({
-            transform: `translate(${ox}px, ${oy}px) scale(${isCur ? 1 : 0.8})`,
+            "--ox": `${ox}px`,
+            "--oy": `${oy}px`,
+            transform: `scale(${isCur ? 1 : 0.9})`,
             opacity: isCur ? "1" : "0.5",
             filter: isCur ? "none" : "blur(2px)",
           })}
@@ -1460,50 +1477,44 @@ export class KageHomeCard extends LitElement {
     // kropka = zapalone światło). Stuknięcie wysuwa wszystkie karty; chowają się same po
     // chwili albo gdy zaczyna się inna czynność (obrót rzutu, wybór pokoju, zmiana piętra).
     const open = this._railOpen;
-    const rail = levels.map((lv, k) => {
+    const rail = levels.flatMap((lv, k) => {
       const group = lv.floors;
       const activeLv = lv.level === activeLevel;
-      const cur = activeLv ? floor : (group[viewCol] ?? group[0]);
-      const lit = cur.areas.filter((a) => roomGlow(this.hass!, a) > 0).length;
+      const shown = this._viewedIn(group, activeLv ? floor : null);
       const top = sectionH - 6 - (levels.length - k) * railStep + 12;
       const short =
         lv.level !== null && lv.level !== undefined
           ? String(lv.level)
           : String(levels.length - 1 - k);
-      return html`<button
-        class="floor-card cut-s ctl ${activeLv ? "active" : ""} ${cur.outdoor
-          ? "outdoor"
-          : ""} ${open ? "" : "tucked"}"
-        style=${styleMap({ top: `${top}px` })}
-        aria-pressed=${activeLv ? "true" : "false"}
-        aria-expanded=${open ? "true" : "false"}
-        aria-label=${cur.name}
-        @click=${() => (open ? this._goFloor(cur) : this._openRail())}
-      >
-        <span class="fname mono">${cur.name.toLocaleUpperCase(this._lang)}</span>
-        <span class="fmeta">
-          <span class="badge cut-s mono ${lit ? "lit" : ""}">${lit}</span>
-          <span class="flabel mono">${t.floorLit}</span>
-        </span>
-        <span class="fshort mono" aria-hidden="true"
-          >${short}${lit ? html`<i class="fdot"></i>` : nothing}</span
+      // Schowane: jedna zakładka na poziom. Wysunięte: karta każdej strefy poziomu obok siebie
+      // (np. parter i ogród), stuknięcie przełącza na nią.
+      const cards = open ? group : [shown];
+      return cards.map((cur, j) => {
+        const isActive = cur === floor;
+        const lit = cur.areas.filter((a) => roomGlow(this.hass!, a) > 0).length;
+        return html`<button
+          class="floor-card cut-s ctl ${isActive ? "active" : ""} ${activeLv && !isActive
+            ? "level"
+            : ""} ${cur.outdoor ? "outdoor" : ""} ${open ? "" : "tucked"}"
+          style=${styleMap({ top: `${top}px`, left: `${12 + j * 114}px` })}
+          aria-pressed=${isActive ? "true" : "false"}
+          aria-expanded=${open ? "true" : "false"}
+          aria-label=${cur.name}
+          @click=${() => (open ? this._goFloor(cur) : this._openRail())}
         >
-      </button>`;
+          <span class="fname mono">${cur.name.toLocaleUpperCase(this._lang)}</span>
+          <span class="fmeta">
+            <span class="badge cut-s mono ${lit ? "lit" : ""}">${lit}</span>
+            <span class="flabel mono">${t.floorLit}</span>
+          </span>
+          <span class="fshort mono" aria-hidden="true"
+            >${short}${group.length > 1
+              ? html`<i class="fmulti">${group.length}</i>`
+              : nothing}${lit ? html`<i class="fdot"></i>` : nothing}</span
+          >
+        </button>`;
+      });
     });
-
-    let side: TemplateResult | typeof nothing = nothing;
-    if (activeGroup.length > 1) {
-      const next = activeGroup[(viewCol + 1) % activeGroup.length];
-      const dx = this._sideOffset(activeGroup, next, viewCol)[0];
-      side = html`<button
-        class="side cut-s ctl mono"
-        aria-label=${format(t.moveTo, { x: next.name })}
-        @click=${() => this._goFloor(next)}
-      >
-        ${dx < 0 ? ICON.left : nothing} ${next.name.toLocaleUpperCase(this._lang)}
-        ${dx >= 0 ? html`<span class="nudge">${ICON.right}</span>` : nothing}
-      </button>`;
-    }
 
     const changed =
       this._zoom !== 1 ||
@@ -1531,7 +1542,7 @@ export class KageHomeCard extends LitElement {
       @wheel=${(e: WheelEvent) => this._wheel(e)}
     >
       <div class="view3d">${layers}</div>
-      ${rail} ${side}
+      ${rail}
       ${changed
         ? html`<button
             class="view-reset cut-s ctl mono"
@@ -2278,7 +2289,9 @@ export class KageHomeCard extends LitElement {
         height: ${PLANE_H}px;
         display: block;
         transform-style: preserve-3d;
-        transform: rotateX(var(--tilt, 62deg)) rotateZ(calc(-42deg + var(--rot, 0deg)));
+        transform: rotateX(var(--tilt, 62deg)) rotateZ(calc(-42deg + var(--rot, 0deg)))
+          translate(var(--ox, 0px), var(--oy, 0px));
+        transition: transform 0.6s cubic-bezier(0.34, 1.2, 0.64, 1);
         border: 1px solid;
         background-image:
           repeating-linear-gradient(
@@ -3369,6 +3382,7 @@ export class KageHomeCard extends LitElement {
         touch-action: none;
         overflow: hidden;
       }
+      .plan.gesturing .plane,
       .plan.gesturing .layer,
       .plan.gesturing .slide,
       .plan.gesturing .layer-body {
@@ -3439,6 +3453,17 @@ export class KageHomeCard extends LitElement {
       }
       .floor-card.active.outdoor .fshort {
         color: var(--kage-climate);
+      }
+      .fmulti {
+        font-style: normal;
+        font-size: 9px;
+        line-height: 1;
+        padding: 1px 3px;
+        border: 1px solid currentColor;
+        opacity: 0.8;
+      }
+      .floor-card.level {
+        border-color: rgba(0, 229, 255, 0.4);
       }
       .fdot {
         width: 6px;

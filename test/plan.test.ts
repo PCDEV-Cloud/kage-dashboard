@@ -3,6 +3,7 @@ import {
   DEFAULT_ROOF,
   centroid,
   freeSpot,
+  groupSides,
   insertVertex,
   lShape,
   moveBy,
@@ -25,7 +26,7 @@ describe("plan", () => {
     expect(p.auto).toBe(true);
     expect(p.rooms.map((r) => r.id)).toEqual(parter.areas.map((a) => a.id));
     expect(p.rooms.every((r) => r.points.length === 4)).toBe(true);
-    expect(p.side).toBe("right");
+    expect(p.side).toBeNull();
   });
 
   it("guesses the attic roof from the floor name", () => {
@@ -79,6 +80,12 @@ describe("plan", () => {
     expect(withRoof.floors!.p!.roof).toEqual(DEFAULT_ROOF);
     expect(saved.floors!.parter!.cols).toBeUndefined();
     expect(writeFloor(saved, "parter", null).floors).toEqual({});
+  });
+
+  it("places zones of one level on a 3 × 3 grid", () => {
+    expect(groupSides([null, null])).toEqual(["center", "right"]);
+    expect(groupSides([null, "center", null])).toEqual(["right", "center", "left"]);
+    expect(groupSides(["front-left", null])).toEqual(["front-left", "center"]);
   });
 
   it("edits polygons on the grid", () => {

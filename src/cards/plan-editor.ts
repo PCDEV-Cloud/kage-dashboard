@@ -6,6 +6,7 @@ import {
   ROOF_PITCH_MAX,
   ROOF_PITCH_MIN,
   SIDES,
+  groupSides,
   bbox,
   centroid,
   clampPt,
@@ -308,6 +309,41 @@ export class KagePlanEditor extends LitElement {
       </label>`;
   }
 
+  // Siatka 3 × 3: gdzie leży ta strefa względem pozostałych na tym poziomie.
+  // Kratki zajęte przez inne strefy pokazują ich nazwy.
+  private _sidePicker(w: Work, sameLevel: FloorModel[]): TemplateResult {
+    const t = this.strings;
+    const f = this._floor;
+    const sides = groupSides(
+      sameLevel.map((x) =>
+        x.id === f.id ? w.side : (this._work[x.id]?.side ?? resolvePlan(this.plan, x).side),
+      ),
+    );
+    const mine = sides[sameLevel.indexOf(f)];
+    const others = new Map<Side, string>();
+    sameLevel.forEach((x, i) => {
+      if (x.id !== f.id) others.set(sides[i]!, x.name);
+    });
+    return html`<div class="field col">
+      <span>${t.sideLabel}</span>
+      <div class="side-grid" role="radiogroup" aria-label=${t.sideLabel}>
+        ${SIDES.map(
+          (s) =>
+            html`<button
+              class="cell cut-s ${s === mine ? "on" : ""} ${others.has(s) ? "taken" : ""}"
+              role="radio"
+              aria-checked=${s === mine ? "true" : "false"}
+              aria-label=${t.side[s]}
+              title=${others.get(s) ?? t.side[s]}
+              @click=${() => this._set({ ...w, side: s })}
+            >
+              ${s === mine ? f.name : (others.get(s) ?? "")}
+            </button>`,
+        )}
+      </div>
+    </div>`;
+  }
+
   // --- widok ---
 
   protected render(): TemplateResult {
@@ -317,7 +353,8 @@ export class KagePlanEditor extends LitElement {
     const names = new Map(f.areas.map((a) => [a.id, a.name]));
     const selPts = this._selPoints(w);
     const sameLevel = this.floors.filter((x) => x.level === f.level);
-    const hasSide = sameLevel.indexOf(f) > 0;
+    // Rozmieszczenie stref poziomu: gdy na poziomie jest więcej niż jedna strefa.
+    const hasSide = sameLevel.length > 1;
     const accent = f.outdoor ? "#3dffa2" : "#00e5ff";
 
     const canvas = svg`<svg
@@ -489,19 +526,7 @@ export class KagePlanEditor extends LitElement {
                 this._grid(w.cols, Number((e.target as HTMLInputElement).value))}
             />
           </label>
-          ${hasSide
-            ? html`<label class="field">
-                <span>${t.sideLabel}</span>
-                <select
-                  @change=${(e: Event) =>
-                    this._set({ ...w, side: (e.target as HTMLSelectElement).value as Side })}
-                >
-                  ${SIDES.map(
-                    (s) => html`<option value=${s} ?selected=${w.side === s}>${t.side[s]}</option>`,
-                  )}
-                </select>
-              </label>`
-            : nothing}
+          ${hasSide ? this._sidePicker(w, sameLevel) : nothing}
           <label class="field check">
             <input
               type="checkbox"
@@ -759,6 +784,36 @@ export class KagePlanEditor extends LitElement {
       select {
         width: auto;
         font-family: var(--kage-font-ui);
+      }
+      .field.col {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .side-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 4px;
+      }
+      .cell {
+        height: 40px;
+        padding: 0 4px;
+        border: 1px dashed rgba(0, 229, 255, 0.3);
+        background: rgba(6, 8, 14, 0.6);
+        color: var(--kage-ink-dim);
+        font: 500 11px var(--kage-font-ui);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .cell.taken {
+        border-style: solid;
+        color: var(--kage-ink-muted);
+      }
+      .cell.on {
+        border: 1px solid var(--kage-accent);
+        background: rgba(0, 229, 255, 0.18);
+        color: var(--kage-ink);
       }
       .err {
         margin: 0;

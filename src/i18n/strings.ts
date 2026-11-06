@@ -130,7 +130,7 @@ export interface Strings {
   remove: string;
   gridSize: string;
   sideLabel: string;
-  side: { right: string; left: string; front: string; back: string };
+  side: Record<import("../engine/plan").Side, string>;
   roof: string;
   roofType: string;
   roofGable: string;

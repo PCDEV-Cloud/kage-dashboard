@@ -45,7 +45,12 @@ const click = async (selector) => {
   await page.waitForTimeout(900);
 };
 
-await click({ css: ".floor-card", text: "FIRST FLOOR" });
+// Karty pięter są schowane: pierwsze stuknięcie wysuwa, drugie przełącza.
+const goFloor = async (name) => {
+  await click({ css: ".floor-card" });
+  await click({ css: ".floor-card", text: name });
+};
+await goFloor("FIRST FLOOR");
 await click({ css: ".room-chip, .tag", text: "Master Bedroom" });
 await page.screenshot({ path: `${out}/2-master.png` });
 await click({ css: ".tile.media .more" });
@@ -56,8 +61,8 @@ await page.screenshot({ path: `${out}/3-blinds-list.png` });
 await click({ css: ".back" });
 await click({ css: ".room-chip, .tag", text: "Bathroom" });
 await page.screenshot({ path: `${out}/4-bathroom.png` });
-await click({ css: ".floor-card", text: "GROUND FLOOR" });
-await click({ css: ".side" });
+await goFloor("GROUND FLOOR");
+await goFloor("OUTDOORS");
 await page.screenshot({ path: `${out}/5-outdoors.png` });
 
 // Poza domem: osoba zalogowanego użytkownika wychodzi, w domu zostaje Jo.
@@ -98,7 +103,7 @@ await setStates({
 });
 await page.setViewportSize({ width: 1180, height: 820 });
 await page.waitForTimeout(900);
-await click({ css: ".floor-card", text: "FIRST FLOOR" });
+await goFloor("FIRST FLOOR");
 await page.screenshot({ path: `${out}/10-tablet.png` });
 await click({ css: ".room-chip, .tag", text: "Master Bedroom" });
 await page.screenshot({ path: `${out}/11-tablet-master.png` });
