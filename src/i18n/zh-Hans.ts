@@ -127,6 +127,7 @@ export const zhHans: Strings = {
   dashedEdge: "虚线边（无墙）",
   edgeHint: "点击房间的边以选择。",
   outdoorFloor: "室外区域",
+  stairs: "楼梯",
   voids: "空白区域",
   addVoid: "添加空白区域",
   voidN: "区域 {n}",

@@ -26,6 +26,7 @@ export interface FloorPlanConfig {
   rooms?: Record<string, Pt[] | RoomShape>; // obszar → wielokąt (albo z krawędziami przerywanymi)
   outdoor?: boolean; // teren zewnętrzny (zielony); brak = zgadywany z nazwy i ikony
   voids?: Pt[][]; // puste obszary (np. zarys domu na piętrze z ogrodem)
+  voidStairs?: number[]; // numery pustych obszarów oznaczonych jako schody
 }
 
 // Dach poddasza. Kalenica „x” biegnie poziomo na rzucie w edytorze (spadki do góry i do dołu
@@ -90,12 +91,48 @@ export interface PlanConfig {
 export interface RoomShape {
   points: Pt[];
   dashed?: number[];
+  stairs?: boolean; // schody; brak = zgadywane z nazwy pomieszczenia
 }
 
 export interface ResolvedRoom {
   id: string;
   points: Pt[];
   dashed?: number[];
+  stairs?: boolean;
+}
+
+const STAIRS_NAME = /stair|schod|楼梯/i;
+
+export const isStairsName = (name: string): boolean => STAIRS_NAME.test(name);
+
+// Schody w pokoju: ustawione w edytorze albo zgadnięte z nazwy.
+export const roomIsStairs = (r: ResolvedRoom, name: string): boolean =>
+  r.stairs ?? isStairsName(name);
+
+// Linie stopni: prostopadłe do dłuższego boku prostokąta otaczającego, co `step` kratki.
+// Rysowane z przycięciem do wielokąta (clipPath), więc pasują też do kształtu L.
+export function stairLines(points: Pt[], step = 0.7): [Pt, Pt][] {
+  const b = bbox(points);
+  const alongX = b.w >= b.h;
+  const len = alongX ? b.w : b.h;
+  const n = Math.max(1, Math.round(len / step) - 1); // liczba linii wewnątrz
+  const gap = len / (n + 1);
+  const lines: [Pt, Pt][] = [];
+  for (let k = 1; k <= n; k += 1) {
+    const t = (alongX ? b.x : b.y) + k * gap;
+    lines.push(
+      alongX
+        ? [
+            [t, b.y],
+            [t, b.y + b.h],
+          ]
+        : [
+            [b.x, t],
+            [b.x + b.w, t],
+          ],
+    );
+  }
+  return lines;
 }
 
 // Numery krawędzi po wstawieniu wierzchołka za `i`: krawędź i dzieli się na dwie.
@@ -141,6 +178,7 @@ export interface ResolvedPlan {
   auto: boolean;
   rooms: ResolvedRoom[];
   voids: Pt[][];
+  voidStairs: number[];
   unplaced: string[]; // obszary piętra bez wielokąta (do umieszczenia w edytorze)
 }
 
@@ -318,6 +356,9 @@ export function resolvePlan(
   const roof = resolveRoof(cfg?.roof, isAtticFloor(floor));
   const voids = (cfg?.voids ?? []).filter(validPts);
   const outdoor = typeof cfg?.outdoor === "boolean" ? cfg.outdoor : null;
+  const voidStairs = (cfg?.voidStairs ?? []).filter(
+    (i) => Number.isInteger(i) && i >= 0 && i < voids.length,
+  );
   if (!cfg?.rooms) {
     return {
       cols,
@@ -328,6 +369,7 @@ export function resolvePlan(
       auto: true,
       rooms: autoPlan(floor, cols, rows),
       voids,
+      voidStairs,
       unplaced: [],
     };
   }
@@ -341,17 +383,25 @@ export function resolvePlan(
       const dashed = Array.isArray(v)
         ? undefined
         : v?.dashed?.filter((e) => Number.isInteger(e) && e >= 0 && e < n);
-      rooms.push(dashed?.length ? { id: a.id, points: pts, dashed } : { id: a.id, points: pts });
+      const stairs = Array.isArray(v) ? undefined : v?.stairs;
+      rooms.push({
+        id: a.id,
+        points: pts,
+        ...(dashed?.length ? { dashed } : {}),
+        ...(typeof stairs === "boolean" ? { stairs } : {}),
+      });
     } else unplaced.push(a.id);
   }
-  return { cols, rows, outdoor, side, roof, auto: false, rooms, voids, unplaced };
+  return { cols, rows, outdoor, side, roof, auto: false, rooms, voids, voidStairs, unplaced };
 }
 
 // Zapis rzutu piętra z powrotem do konfiguracji (bez pól równych wartościom domyślnym).
 export function writeFloor(
   plan: PlanConfig | undefined,
   floorId: string,
-  floor: Omit<ResolvedPlan, "auto" | "unplaced"> | null,
+  floor:
+    | (Omit<ResolvedPlan, "auto" | "unplaced" | "voidStairs"> & { voidStairs?: number[] })
+    | null,
 ): PlanConfig {
   const floors = { ...(plan?.floors ?? {}) };
   if (!floor) {
@@ -361,7 +411,13 @@ export function writeFloor(
       rooms: Object.fromEntries(
         floor.rooms.map((r) => [
           r.id,
-          r.dashed?.length ? { points: r.points, dashed: r.dashed } : r.points,
+          r.dashed?.length || typeof r.stairs === "boolean"
+            ? {
+                points: r.points,
+                ...(r.dashed?.length ? { dashed: r.dashed } : {}),
+                ...(typeof r.stairs === "boolean" ? { stairs: r.stairs } : {}),
+              }
+            : r.points,
         ]),
       ),
     };
@@ -371,6 +427,7 @@ export function writeFloor(
     if (floor.side) cfg.side = floor.side;
     cfg.roof = floor.roof ?? false;
     if (floor.voids.length) cfg.voids = floor.voids;
+    if (floor.voidStairs?.length) cfg.voidStairs = floor.voidStairs;
     floors[floorId] = cfg;
   }
   return { ...(plan ?? {}), floors };

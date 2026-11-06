@@ -38,6 +38,9 @@ import {
   centroid,
   groupSides,
   polygonArea,
+  roomIsStairs,
+  stairLines,
+  type Pt,
   resolvePlan,
   type PlanConfig,
   type ResolvedPlan,
@@ -1432,6 +1435,19 @@ export class KageHomeCard extends LitElement {
             ></polygon>`,
           )}
           ${
+            // Schody: linie stopni w pokoju (z edytora albo z nazwy) i w pustych obszarach.
+            [
+              ...shapes.filter((x) => roomIsStairs(x.r, x.a.name)).map((x) => x.r.points),
+              ...plan.voidStairs.map((i) => plan.voids[i]).filter((v): v is Pt[] => !!v),
+            ].map((pts, k) => {
+              const cid = `st-${f.id}-${k}`;
+              return svg`<clipPath id=${cid}><polygon points=${pts.map((p) => p.join(",")).join(" ")}></polygon></clipPath>
+                <g class="stairs" clip-path=${`url(#${cid})`}>
+                  ${stairLines(pts).map(([a, b]) => svg`<line x1=${a[0]} y1=${a[1]} x2=${b[0]} y2=${b[1]}></line>`)}
+                </g>`;
+            })
+          }
+          ${
             // Najpierw krawędzie przerywane, potem ciągłe: ściana sąsiedniego pokoju na wierzchu.
             [true, false].map((pass) =>
               shapes.map((x) =>
@@ -2453,6 +2469,10 @@ export class KageHomeCard extends LitElement {
         stroke-width: 1.2px;
       }
       .redge {
+        pointer-events: none;
+      }
+      .stairs line {
+        stroke: rgba(0, 229, 255, 0.4);
         pointer-events: none;
       }
       .redge.dashed {

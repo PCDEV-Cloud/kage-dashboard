@@ -127,6 +127,7 @@ export interface Strings {
   dashedEdge: string;
   edgeHint: string;
   outdoorFloor: string;
+  stairs: string;
   voids: string;
   addVoid: string;
   voidN: string; // {n}

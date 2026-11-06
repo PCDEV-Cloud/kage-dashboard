@@ -139,6 +139,7 @@ export const pl: Strings = {
   dashedEdge: "Krawędź przerywana (bez ściany)",
   edgeHint: "Stuknij krawędź pokoju, aby ją wybrać.",
   outdoorFloor: "Teren zewnętrzny",
+  stairs: "Schody",
   voids: "Puste obszary",
   addVoid: "Dodaj pusty obszar",
   voidN: "Obszar {n}",

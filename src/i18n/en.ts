@@ -133,6 +133,7 @@ export const en: Strings = {
   dashedEdge: "Dashed edge (no wall)",
   edgeHint: "Tap an edge of the room to select it.",
   outdoorFloor: "Outdoor area",
+  stairs: "Stairs",
   voids: "Empty areas",
   addVoid: "Add empty area",
   voidN: "Area {n}",

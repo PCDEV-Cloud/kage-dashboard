@@ -16,6 +16,8 @@ import {
   moveBy,
   rect,
   removeVertex,
+  roomIsStairs,
+  stairLines,
   dashedAfterInsert,
   dashedAfterRemove,
   toggleDashed,
@@ -84,6 +86,7 @@ export class KagePlanEditor extends LitElement {
       roof: r.roof,
       rooms: r.rooms,
       voids: r.voids,
+      voidStairs: r.voidStairs,
     };
   }
 
@@ -127,9 +130,38 @@ export class KagePlanEditor extends LitElement {
     this._set({
       ...w,
       rooms: w.rooms.map((r) =>
-        r.id === sel.id ? { id: r.id, points: pts, ...(dashed?.length ? { dashed } : {}) } : r,
+        r.id === sel.id
+          ? {
+              id: r.id,
+              points: pts,
+              ...(dashed?.length ? { dashed } : {}),
+              ...(typeof r.stairs === "boolean" ? { stairs: r.stairs } : {}),
+            }
+          : r,
       ),
     });
+  }
+
+  // Schody: pokój (jawnie zapisane, domyślnie z nazwy) albo pusty obszar.
+  private _selStairs(w: Work, names: Map<string, string>): boolean {
+    const sel = this._sel;
+    if (sel?.kind === "void") return w.voidStairs.includes(sel.index);
+    const r = this._selRoom(w);
+    return r ? roomIsStairs(r, names.get(r.id) ?? "") : false;
+  }
+
+  private _setStairs(on: boolean): void {
+    const w = this._current();
+    const sel = this._sel;
+    if (sel?.kind === "void") {
+      const rest = w.voidStairs.filter((i) => i !== sel.index);
+      this._set({ ...w, voidStairs: on ? [...rest, sel.index].sort((a, b) => a - b) : rest });
+    } else if (sel?.kind === "room") {
+      this._set({
+        ...w,
+        rooms: w.rooms.map((r) => (r.id === sel.id ? { ...r, stairs: on } : r)),
+      });
+    }
   }
 
   private _toggleDashed(): void {
@@ -263,7 +295,14 @@ export class KagePlanEditor extends LitElement {
     const sel = this._sel;
     if (!sel) return;
     if (sel.kind === "room") this._set({ ...w, rooms: w.rooms.filter((r) => r.id !== sel.id) });
-    else this._set({ ...w, voids: w.voids.filter((_, i) => i !== sel.index) });
+    else
+      this._set({
+        ...w,
+        voids: w.voids.filter((_, i) => i !== sel.index),
+        voidStairs: w.voidStairs
+          .filter((i) => i !== sel.index)
+          .map((i) => (i > sel.index ? i - 1 : i)),
+      });
     this._sel = null;
     this._vertex = null;
   }
@@ -301,6 +340,7 @@ export class KagePlanEditor extends LitElement {
       roof: r.roof,
       rooms: r.rooms,
       voids: [],
+      voidStairs: [],
     });
     this._sel = null;
   }
@@ -474,6 +514,16 @@ export class KagePlanEditor extends LitElement {
           }),
         )
       }
+      ${[
+        ...w.rooms.filter((r) => roomIsStairs(r, names.get(r.id) ?? "")).map((r) => r.points),
+        ...w.voidStairs.map((i) => w.voids[i]).filter((v): v is Pt[] => !!v),
+      ].map((pts, k) => {
+        const id = `st-${k}`;
+        return svg`<clipPath id=${id}><polygon points=${pts.map((p) => p.join(",")).join(" ")}></polygon></clipPath>
+          <g class="stairs" clip-path=${`url(#${id})`}>
+            ${stairLines(pts).map(([a, b]) => svg`<line x1=${a[0]} y1=${a[1]} x2=${b[0]} y2=${b[1]}></line>`)}
+          </g>`;
+      })}
       ${w.rooms.map((r) => {
         const [cx, cy] = centroid(r.points);
         return svg`<text class="lbl" x=${cx} y=${cy}>${names.get(r.id) ?? r.id}</text>`;
@@ -595,6 +645,14 @@ export class KagePlanEditor extends LitElement {
                   ${this._sel.kind === "room" ? t.removeFromPlan : t.remove}
                 </button>
               </div>
+              <label class="field check stairs-opt">
+                <input
+                  type="checkbox"
+                  .checked=${this._selStairs(w, names)}
+                  @change=${(e: Event) => this._setStairs((e.target as HTMLInputElement).checked)}
+                />
+                <span>${t.stairs}</span>
+              </label>
               ${this._sel.kind === "room" ? html`<p class="hint small">${t.edgeHint}</p>` : nothing}
             </section>`
           : nothing}
@@ -762,6 +820,14 @@ export class KagePlanEditor extends LitElement {
       }
       .lbl.dim {
         fill: var(--kage-ink-dim);
+      }
+      .stairs-opt {
+        margin: 10px 0 0;
+      }
+      .stairs line {
+        stroke: rgba(0, 229, 255, 0.45);
+        stroke-width: 0.05;
+        pointer-events: none;
       }
       .roofline {
         stroke: rgba(255, 179, 0, 0.6);

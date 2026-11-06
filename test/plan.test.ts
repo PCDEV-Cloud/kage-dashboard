@@ -2,6 +2,9 @@ import { buildHomeModel } from "../src/engine/model";
 import {
   DEFAULT_ROOF,
   centroid,
+  isStairsName,
+  roomIsStairs,
+  stairLines,
   dashedAfterInsert,
   dashedAfterRemove,
   toggleDashed,
@@ -110,6 +113,47 @@ describe("plan", () => {
     const back = writeFloor(undefined, "parter", p).floors!.parter!;
     expect(back.rooms![first]).toEqual({ points: rect(0, 0, 4, 4), dashed: [1] });
     expect(back.outdoor).toBe(true);
+  });
+
+  it("draws stairs across the longer side and remembers the choice", () => {
+    expect(isStairsName("Attic Stairs")).toBe(true);
+    expect(isStairsName("Schody")).toBe(true);
+    expect(isStairsName("Landing")).toBe(false);
+    const lines = stairLines(rect(0, 0, 3, 1), 1);
+    expect(lines).toEqual([
+      [
+        [1, 0],
+        [1, 1],
+      ],
+      [
+        [2, 0],
+        [2, 1],
+      ],
+    ]);
+    expect(stairLines(rect(0, 0, 1, 3), 1)[0]).toEqual([
+      [0, 1],
+      [1, 1],
+    ]);
+    expect(roomIsStairs({ id: "x", points: rect(0, 0, 1, 1) }, "Stairs")).toBe(true);
+    expect(roomIsStairs({ id: "x", points: rect(0, 0, 1, 1), stairs: false }, "Stairs")).toBe(
+      false,
+    );
+    const first = parter.areas[0]!.id;
+    const plan = {
+      floors: {
+        parter: {
+          rooms: { [first]: { points: rect(0, 0, 4, 4), stairs: true } },
+          voids: [rect(5, 5, 2, 2), rect(8, 8, 2, 2)],
+          voidStairs: [1, 7],
+        },
+      },
+    };
+    const p = resolvePlan(plan, parter);
+    expect(p.rooms[0]!.stairs).toBe(true);
+    expect(p.voidStairs).toEqual([1]);
+    const back = writeFloor(undefined, "parter", p).floors!.parter!;
+    expect(back.rooms![first]).toEqual({ points: rect(0, 0, 4, 4), stairs: true });
+    expect(back.voidStairs).toEqual([1]);
   });
 
   it("edits polygons on the grid", () => {
