@@ -352,6 +352,15 @@ function roofFaces(w: number, h: number, roof: Roof): RoofFace[] {
   return faces;
 }
 
+const TILT_DEFAULT = 62;
+const TILT_MIN = 0;
+const TILT_MAX = 150;
+const clampTilt = (t: number) => Math.min(TILT_MAX, Math.max(TILT_MIN, t));
+// Odstęp pięter na ekranie rośnie z sinusem pochylenia (piętra leżą jedno nad drugim w 3D);
+// od spodu (powyżej 90°) odstęp znów maleje.
+const tiltFactor = (t: number) =>
+  Math.sin((t * Math.PI) / 180) / Math.sin((TILT_DEFAULT * Math.PI) / 180);
+
 const clampZoom = (z: number) => Math.min(2.5, Math.max(0.6, z));
 const normRot = (r: number) => ((((r + 180) % 360) + 360) % 360) - 180;
 
@@ -375,6 +384,7 @@ export class KageHomeCard extends LitElement {
     _zoom: { state: true },
     _rot: { state: true },
     _tx: { state: true },
+    _tilt: { state: true },
     _ty: { state: true },
     _saving: { state: true },
     _saveError: { state: true },
@@ -406,6 +416,8 @@ export class KageHomeCard extends LitElement {
   private _rot = 0;
   private _tx = 0;
   private _ty = 0;
+  // Pochylenie widoku: 0° = rzut z góry, 62° = domyślny, 90° = z boku, powyżej 90° = od spodu.
+  private _tilt = TILT_DEFAULT;
   private _saving = false;
   private _saveError = "";
   private _resize?: ResizeObserver;
@@ -681,7 +693,8 @@ export class KageHomeCard extends LitElement {
   // Dwa palce przybliżają i przesuwają rzut, z punktem między palcami w miejscu.
   // Laptop: Ctrl + kółko (szczypanie na touchpadzie) przybliża, Shift + kółko obraca.
 
-  private _drag: { id: number; x: number; r: number; moved: boolean } | null = null;
+  private _drag: { id: number; x: number; y: number; r: number; t: number; moved: boolean } | null =
+    null;
   private _pinch: {
     d: number;
     a: number;
@@ -689,7 +702,7 @@ export class KageHomeCard extends LitElement {
     r: number;
     c: [number, number]; // punkt rzutu pod palcami (współrzędne przed przybliżeniem)
   } | null = null;
-  private _live = { z: 1, r: 0, tx: 0, ty: 0 };
+  private _live = { z: 1, r: 0, tx: 0, ty: 0, t: TILT_DEFAULT };
   private _suppressClick = false;
 
   private _planEl(): HTMLElement | null {
@@ -710,6 +723,9 @@ export class KageHomeCard extends LitElement {
     el.style.setProperty("--rot", `${v.r}deg`);
     el.style.setProperty("--tx", `${v.tx}px`);
     el.style.setProperty("--ty", `${v.ty}px`);
+    el.style.setProperty("--tilt", `${v.t}deg`);
+    el.style.setProperty("--tf", String(tiltFactor(v.t)));
+    el.style.setProperty("--up", v.t > 90 ? "-1" : "1");
   }
 
   private _commitView(): void {
@@ -717,26 +733,39 @@ export class KageHomeCard extends LitElement {
     this._rot = this._live.r;
     this._tx = this._live.tx;
     this._ty = this._live.ty;
+    this._tilt = this._live.t;
+    this._planEl()?.classList.remove("gesturing");
   }
 
   private _syncLive(): void {
-    this._live = { z: this._zoom, r: this._rot, tx: this._tx, ty: this._ty };
+    this._live = { z: this._zoom, r: this._rot, tx: this._tx, ty: this._ty, t: this._tilt };
   }
 
   private _gestureDown(e: PointerEvent): void {
     if (this._pinch || (e.pointerType === "mouse" && e.button !== 0)) return;
     if ((e.target as Element).closest?.("button")) return; // karty pięter, przycisk boczny
     this._syncLive();
-    this._drag = { id: e.pointerId, x: e.clientX, r: this._rot, moved: false };
+    this._drag = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      r: this._rot,
+      t: this._tilt,
+      moved: false,
+    };
   }
 
   private _gestureMove(e: PointerEvent): void {
     const d = this._drag;
     if (!d || d.id !== e.pointerId || this._pinch) return;
     const dx = e.clientX - d.x;
-    if (!d.moved && Math.abs(dx) < 8) return;
+    const dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 8) return;
+    if (!d.moved) (e.currentTarget as HTMLElement).classList.add("gesturing");
     d.moved = true;
-    this._live.r = normRot(d.r + dx * 0.5);
+    // W prawo: dom obraca się w prawo. W dół: widok bardziej z góry; w górę: z boku i od spodu.
+    this._live.r = normRot(d.r - dx * 0.5);
+    this._live.t = clampTilt(d.t - dy * 0.4);
     this._applyView(e.currentTarget as HTMLElement);
   }
 
@@ -760,6 +789,7 @@ export class KageHomeCard extends LitElement {
       this._drag = null;
     }
     this._syncLive();
+    el.classList.add("gesturing");
     const [t0, t1] = [e.touches[0]!, e.touches[1]!];
     const mid = this._local(el, (t0.clientX + t1.clientX) / 2, (t0.clientY + t1.clientY) / 2);
     this._pinch = {
@@ -783,9 +813,10 @@ export class KageHomeCard extends LitElement {
     const z = clampZoom((p.z * d) / p.d);
     this._live = {
       z,
-      r: normRot(p.r + (a - p.a)),
+      r: normRot(p.r - (a - p.a)),
       tx: mid[0] - p.c[0] * z,
       ty: mid[1] - p.c[1] * z,
+      t: this._live.t,
     };
     this._applyView(el);
   };
@@ -825,7 +856,7 @@ export class KageHomeCard extends LitElement {
       const z = clampZoom(this._zoom * Math.exp(-e.deltaY * 0.01));
       this._live = { ...this._live, z, tx: m[0] - c[0]! * z, ty: m[1] - c[1]! * z };
     } else {
-      this._live.r = normRot(this._rot + (e.deltaY || e.deltaX) * 0.25);
+      this._live.r = normRot(this._rot - (e.deltaY || e.deltaX) * 0.25);
     }
     this._commitView();
   }
@@ -1186,6 +1217,10 @@ export class KageHomeCard extends LitElement {
     const offset = Math.round((sectionH - (tops[tops.length - 1] + LAYER_H)) / 2);
     const railStep = Math.min(74, (sectionH - 12) / levels.length);
 
+    const activeK = Math.max(
+      0,
+      levels.findIndex((l) => l.level === activeLevel),
+    );
     const layers = levels.map((lv, k) => {
       const group = lv.floors;
       const activeLv = lv.level === activeLevel;
@@ -1321,10 +1356,11 @@ export class KageHomeCard extends LitElement {
       const ground =
         lv.level === 0 ? html`<span class="ground" aria-hidden="true"></span>` : nothing;
 
+      const pivot = tops[activeK]!;
       return html`<div
         class="layer"
         style=${styleMap({
-          top: `${offset + tops[k]}px`,
+          top: `calc(${offset + pivot}px + ${tops[k] - pivot}px * var(--tf, 1))`,
           zIndex: String(activeLv ? 10 : levels.length - k),
         })}
       >
@@ -1374,7 +1410,12 @@ export class KageHomeCard extends LitElement {
       </button>`;
     }
 
-    const changed = this._zoom !== 1 || this._rot !== 0 || this._tx !== 0 || this._ty !== 0;
+    const changed =
+      this._zoom !== 1 ||
+      this._rot !== 0 ||
+      this._tx !== 0 ||
+      this._ty !== 0 ||
+      this._tilt !== TILT_DEFAULT;
     return html`<section
       class="plan"
       style=${styleMap({
@@ -1383,6 +1424,10 @@ export class KageHomeCard extends LitElement {
         "--rot": `${this._rot}deg`,
         "--tx": `${this._tx}px`,
         "--ty": `${this._ty}px`,
+        "--tilt": `${this._tilt}deg`,
+        "--tf": String(tiltFactor(this._tilt)),
+        // od spodu etykiety pokoi wiszą pod podłogą, żeby jej nie zasłaniała
+        "--up": this._tilt > 90 ? "-1" : "1",
       })}
       @pointerdown=${(e: PointerEvent) => this._gestureDown(e)}
       @pointermove=${(e: PointerEvent) => this._gestureMove(e)}
@@ -1401,6 +1446,7 @@ export class KageHomeCard extends LitElement {
               this._rot = 0;
               this._tx = 0;
               this._ty = 0;
+              this._tilt = TILT_DEFAULT;
             }}
           >
             ${ICON.reset}
@@ -2137,7 +2183,7 @@ export class KageHomeCard extends LitElement {
         height: ${PLANE_H}px;
         display: block;
         transform-style: preserve-3d;
-        transform: rotateX(62deg) rotateZ(calc(-42deg + var(--rot, 0deg)));
+        transform: rotateX(var(--tilt, 62deg)) rotateZ(calc(-42deg + var(--rot, 0deg)));
         border: 1px solid;
         background-image:
           repeating-linear-gradient(
@@ -2215,8 +2261,8 @@ export class KageHomeCard extends LitElement {
         position: absolute;
         left: 50%;
         top: 50%;
-        transform: translate(-50%, -50%) translateZ(24px) rotateZ(calc(42deg - var(--rot, 0deg)))
-          rotateX(-62deg);
+        transform: translate(-50%, -50%) translateZ(calc(24px * var(--up, 1)))
+          rotateZ(calc(42deg - var(--rot, 0deg))) rotateX(calc(0deg - var(--tilt, 62deg)));
         padding: 4px 8px;
         white-space: nowrap;
         background: rgba(6, 8, 14, 0.86);
@@ -3178,7 +3224,7 @@ export class KageHomeCard extends LitElement {
         top: ${-20 - PLANE_H * 0.8}px;
         width: ${PLANE_W * 2.6}px;
         height: ${PLANE_H * 2.6}px;
-        transform: rotateX(62deg) rotateZ(calc(-42deg + var(--rot, 0deg)));
+        transform: rotateX(var(--tilt, 62deg)) rotateZ(calc(-42deg + var(--rot, 0deg)));
         background-image:
           repeating-linear-gradient(
             0deg,
@@ -3225,8 +3271,13 @@ export class KageHomeCard extends LitElement {
 
       /* --- gesty na rzucie --- */
       .plan {
-        touch-action: pan-y;
+        touch-action: none;
         overflow: hidden;
+      }
+      .plan.gesturing .layer,
+      .plan.gesturing .slide,
+      .plan.gesturing .layer-body {
+        transition: none;
       }
       .view3d {
         position: absolute;
