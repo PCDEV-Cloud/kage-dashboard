@@ -1,8 +1,11 @@
 name: Release
 
-# Wydanie: podnieś wersję w package.json, potem na GitHubie Releases → Draft a new release,
-# tag vX.Y.Z → Publish. Ten workflow zbuduje kage.js i dołączy go do wydania (HACS pobiera ten plik).
+# Dwa sposoby wydania:
+# 1. Przycisk: Actions → Release → Run workflow. Bierze wersję z package.json na main,
+#    sprawdza, że tagu vX.Y.Z jeszcze nie ma, buduje kage.js i tworzy wydanie z plikiem.
+# 2. Ręcznie: Releases → Draft a new release → tag vX.Y.Z → Publish; workflow dołączy kage.js.
 on:
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -10,7 +13,7 @@ permissions:
   contents: write
 
 jobs:
-  attach:
+  release:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -19,9 +22,23 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm test
-      - run: npm run build
-      - name: Attach kage.js to the release
+      - run: npm run check
+
+      - name: Create the release (button)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v$(node -p "require('./package.json').version")"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::Wydanie $TAG już istnieje. Podnieś wersję w package.json."
+            exit 1
+          fi
+          gh release create "$TAG" dist/kage.js --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+          echo "Wydano $TAG" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach kage.js (manual release)
+        if: github.event_name == 'release'
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "${{ github.event.release.tag_name }}" dist/kage.js --clobber

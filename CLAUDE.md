@@ -41,7 +41,7 @@ Home Assistant OS, Core 2026.10.2, Frontend 20260930.4. Instalacja przez HACS ja
 
 - TypeScript strict; testy Vitest na zrzutach rejestrów w `test/fixtures/`; każdy nowy element silnika ma test.
 - `npm run check` musi przejść przed commitem; CI robi to samo i walidację HACS.
-- Wydania przez GitHub Releases (tag `vX.Y.Z`, opublikowane w UI); workflow Release dołącza `kage.js`. Sesja Claude może wypychać gałęzie, ale nie tagi.
+- Wydania: właściciel klika Actions → Release → Run workflow (bierze wersję z `package.json`, tworzy tag `vX.Y.Z` i wydanie z `kage.js`). Zawsze podnoś wersję w `package.json` przy zmianie dla użytkownika. Sesja Claude może wypychać gałęzie, ale nie tagi.
 - Tylko publiczne API frontendu HA; nie sięgamy do prywatnych elementów `ha-*` bez potrzeby.
 - Teksty interfejsu zawsze przez `src/i18n`, nigdy na sztywno w kodzie.
 
