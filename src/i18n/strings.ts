@@ -128,6 +128,10 @@ export interface Strings {
   edgeHint: string;
   outdoorFloor: string;
   stairs: string;
+  sockets: string;
+  switches: string;
+  camera: string;
+  openLive: string;
   voids: string;
   addVoid: string;
   voidN: string; // {n}

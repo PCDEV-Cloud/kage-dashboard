@@ -2,6 +2,7 @@ import { buildHomeModel, isOutdoorFloor } from "../src/engine/model";
 import {
   brightnessPct,
   activeMedia,
+  allOutlets,
   canSetPosition,
   climateIsOff,
   climatePower,
@@ -63,6 +64,25 @@ describe("roomControls", () => {
       all: "cover.blinds",
       members: ["cover.left", "cover.right"],
     });
+  });
+
+  it("adds sockets and cameras of the room", () => {
+    const h = bedroomHass();
+    h.entities["switch.socket"] = { entity_id: "switch.socket", area_id: "sypialnia" };
+    h.states["switch.socket"] = {
+      entity_id: "switch.socket",
+      state: "on",
+      attributes: { device_class: "outlet" },
+    };
+    h.entities["camera.door"] = { entity_id: "camera.door", area_id: "sypialnia" };
+    h.states["camera.door"] = { entity_id: "camera.door", state: "idle", attributes: {} };
+    const a = buildHomeModel(h, floors)
+      .floors.find((f) => f.id === "pietro")!
+      .areas.find((x) => x.id === "sypialnia")!;
+    const rc = roomControls(h, a);
+    expect(rc.switches).toEqual({ all: null, members: ["switch.socket"] });
+    expect(allOutlets(h, rc.switches!.members)).toBe(true);
+    expect(rc.cameras).toEqual(["camera.door"]);
   });
 
   it("keeps a projector screen apart from window blinds", () => {

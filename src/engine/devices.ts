@@ -20,6 +20,9 @@ export interface RoomControls {
   covers: CoverControl[];
   climates: string[];
   media: string[];
+  // Gniazdka i przełączniki (switch), np. gniazdko z „Show as → Outlet”.
+  switches: GroupControl | null;
+  cameras: string[];
 }
 
 // Rodzaj osłony = klasa urządzenia w HA („Show as”). Ekran projektora HA nie ma,
@@ -154,7 +157,12 @@ export function roomControls(hass: HomeAssistant, area: AreaModel): RoomControls
   const media = area.entityIds.filter(
     (id) => domainOf(id) === "media_player" && available(hass, id),
   );
-  return { lights, covers, climates, media };
+  const switches = grouped(
+    hass,
+    area.entityIds.filter((id) => domainOf(id) === "switch" && available(hass, id)),
+  );
+  const cameras = area.entityIds.filter((id) => domainOf(id) === "camera" && available(hass, id));
+  return { lights, covers, climates, media, switches, cameras };
 }
 
 // Pojedyncze osłony dzielimy według rodzaju. Grupa z HA trafia do rodzaju, do którego
@@ -183,8 +191,20 @@ function coverControls(hass: HomeAssistant, ids: string[]): CoverControl[] {
   return COVER_ORDER.flatMap((k) => byKind.get(k) ?? []);
 }
 
+// Gniazdka: wszystkie przełączniki z klasą „outlet” → podpis „Gniazdka”, inaczej „Przełączniki”.
+export function allOutlets(hass: HomeAssistant, ids: string[]): boolean {
+  return ids.length > 0 && ids.every((id) => hass.states[id]?.attributes.device_class === "outlet");
+}
+
 export function hasControls(c: RoomControls): boolean {
-  return !!c.lights || c.covers.length > 0 || c.climates.length > 0 || c.media.length > 0;
+  return (
+    !!c.lights ||
+    c.covers.length > 0 ||
+    c.climates.length > 0 ||
+    c.media.length > 0 ||
+    !!c.switches ||
+    c.cameras.length > 0
+  );
 }
 
 export function controlCount(c: RoomControls): number {
@@ -192,7 +212,9 @@ export function controlCount(c: RoomControls): number {
     (c.lights?.members.length ?? 0) +
     c.covers.reduce((n, g) => n + g.members.length, 0) +
     c.climates.length +
-    c.media.length
+    c.media.length +
+    (c.switches?.members.length ?? 0) +
+    c.cameras.length
   );
 }
 

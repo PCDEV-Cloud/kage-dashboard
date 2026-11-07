@@ -145,7 +145,15 @@ export function demoHass(language = "en") {
     { device_class: "battery", friendly_name: "Window Sensor Battery" },
     { entity_category: "diagnostic" },
   );
-  add("camera.driveway", "driveway", "idle", { friendly_name: "Driveway Camera" });
+  add("camera.driveway", "driveway", "idle", {
+    friendly_name: "Driveway Camera",
+    entity_picture:
+      "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 9'><rect width='16' height='9' fill='%23203040'/><rect y='6' width='16' height='3' fill='%23304030'/><rect x='3' y='4' width='5' height='3' fill='%23506070'/></svg>",
+  });
+  add("switch.driveway_socket", "driveway", "on", {
+    friendly_name: "Socket",
+    device_class: "outlet",
+  });
   add("alarm_control_panel.home", "office", "disarmed", { friendly_name: "Alarm" });
   // Poza domem: obecność, otwarcia, woda, prąd, brama.
   add("person.demo", null, "home", { friendly_name: "Demo", user_id: "demo" });

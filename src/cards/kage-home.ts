@@ -3,6 +3,7 @@ import { styleMap } from "lit/directives/style-map.js";
 import { format, languageOf, plural, stringsFor, type Strings } from "../i18n";
 import {
   activeMedia,
+  allOutlets,
   brightnessPct,
   canSetPosition,
   canStop,
@@ -65,7 +66,7 @@ const PLANE_H = 152;
 const LAYER_H = 113;
 const SECTION_H = 232;
 
-type Expanded = "lights" | "climates" | "media" | `cover:${CoverKind}` | null;
+type Expanded = "lights" | "climates" | "media" | "switches" | `cover:${CoverKind}` | null;
 
 // Przytrzymanie dla akcji fizycznych (brama, furtka, zawór wody).
 const HOLD_MS = 1100;
@@ -167,6 +168,19 @@ const ICON = {
   >
     <path d="M4 12a8 8 0 1 0 2.5-5.8"></path>
     <path d="M4 4v4h4"></path>
+  </svg>`,
+  plug: html`<svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="2"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    aria-hidden="true"
+  >
+    <path d="M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4"></path>
   </svg>`,
   pencil: html`<svg
     width="13"
@@ -358,6 +372,7 @@ function roofFaces(w: number, h: number, roof: Roof): RoofFace[] {
 }
 
 const RAIL_AUTO_HIDE_MS = 4000;
+const CAMERA_REFRESH_MS = 5000;
 const TILT_DEFAULT = 62;
 const TILT_MIN = 0;
 const TILT_MAX = 150;
@@ -385,6 +400,7 @@ export class KageHomeCard extends LitElement {
     _secureDone: { state: true },
     _holding: { state: true },
     _width: { state: true },
+    _camTick: { state: true },
     _height: { state: true },
     _editing: { state: true },
     _zoom: { state: true },
@@ -415,6 +431,9 @@ export class KageHomeCard extends LitElement {
   private _holdTimer?: ReturnType<typeof setTimeout>;
   // Szerokość karty: od WIDE_MIN układ dwukolumnowy (tablet, laptop).
   private _width = 0;
+  // Odświeżanie podglądów kamer.
+  private _camTick = 0;
+  private _camTimer?: ReturnType<typeof setInterval>;
   // Wysokość dostępna dla karty (od jej górnej krawędzi do dołu okna).
   private _height = 0;
   // Edytor rzutu (administrator, układ szeroki).
@@ -462,6 +481,11 @@ export class KageHomeCard extends LitElement {
       window.addEventListener("resize", this._onWindowResize);
       this._resize.observe(this);
     }
+    if (!this._camTimer) {
+      this._camTimer = setInterval(() => {
+        if (this.renderRoot.querySelector(".tile.cam") && !document.hidden) this._camTick += 1;
+      }, CAMERA_REFRESH_MS);
+    }
   }
 
   // Wyjście z domu zawsze zaczyna od przeglądu, nie od ostatnio oglądanego pokoju.
@@ -482,6 +506,8 @@ export class KageHomeCard extends LitElement {
     super.disconnectedCallback();
     this._resize?.disconnect();
     window.removeEventListener("resize", this._onWindowResize);
+    clearInterval(this._camTimer);
+    this._camTimer = undefined;
   }
 
   private _onWindowResize = () => this._measureHeight();
@@ -588,6 +614,7 @@ export class KageHomeCard extends LitElement {
         (c.covers.length ? 3 : 0) +
         (c.media.length ? 2 : 0) +
         (c.climates.length ? 1 : 0) +
+        (c.switches ? 1 : 0) +
         controlCount(c) / 100;
       if (s > score) {
         score = s;
@@ -1756,8 +1783,10 @@ export class KageHomeCard extends LitElement {
         ${c.lights ? this._lightTile(area, c.lights) : nothing}
         ${c.covers.filter((g) => g.kind !== "screen").map((g) => this._coverTile(area, g))}
         ${c.climates.length ? this._climateTile(c.climates) : nothing}
+        ${c.switches ? this._switchTile(area, c.switches) : nothing}
         ${c.media.length ? this._mediaTile(c.media) : nothing}
         ${c.covers.filter((g) => g.kind === "screen").map((g) => this._coverTile(area, g))}
+        ${c.cameras.map((id) => this._cameraTile(area, id))}
       </div>`;
     }
 
@@ -1930,6 +1959,75 @@ export class KageHomeCard extends LitElement {
     />`;
   }
 
+  // Gniazdka i przełączniki: włącz/wyłącz wszystkie (grupa albo po kolei), lista pojedynczych.
+  private _switchTile(area: AreaModel, g: GroupControl): TemplateResult {
+    const t = this._t;
+    const h = this.hass!;
+    const ids = g.members;
+    const onCount = ids.filter((id) => isOn(h, id)).length;
+    const anyOn = onCount > 0 || (!!g.all && isOn(h, g.all));
+    const multi = ids.length > 1;
+    const label = allOutlets(h, ids) ? t.sockets : t.switches;
+    const state = multi
+      ? format(t.lightsSome, { on: onCount, total: ids.length })
+      : anyOn
+        ? t.stateOn
+        : t.stateOff;
+    return html`<div class="tile cut-s sw ${anyOn ? "on" : ""}">
+      <div class="tile-head">
+        <button
+          class="toggle"
+          aria-pressed=${anyOn ? "true" : "false"}
+          aria-label=${`${label}: ${anyOn ? t.stateOn : t.stateOff}`}
+          @click=${() =>
+            this._call("switch", anyOn ? "turn_off" : "turn_on", { entity_id: g.all ?? ids })}
+        >
+          <span class="ico">${ICON.plug}</span>
+          <span class="tt">
+            <span class="name">${multi ? label : this._name(ids[0]!, area) || label}</span>
+            <span class="st mono">${state}</span>
+          </span>
+        </button>
+        ${multi ? this._listButton("switches", ids.length) : nothing}
+      </div>
+      <span class="spacer"></span>
+    </div>`;
+  }
+
+  // Podgląd kamery: zdjęcie z camera_proxy (adres z tokenem w entity_picture), odświeżane
+  // co kilka sekund; stuknięcie otwiera okno HA z obrazem na żywo.
+  private _cameraTile(area: AreaModel, id: string): TemplateResult {
+    const s = this.hass!.states[id];
+    const pic = typeof s?.attributes.entity_picture === "string" ? s.attributes.entity_picture : "";
+    const src =
+      pic && !pic.startsWith("data:")
+        ? `${pic}${pic.includes("?") ? "&" : "?"}t=${this._camTick}`
+        : pic;
+    const name = this._name(id, area) || this._t.camera;
+    return html`<button
+      class="tile cut-s cam wide"
+      aria-label=${`${name}: ${this._t.openLive}`}
+      @click=${() =>
+        this.dispatchEvent(
+          new CustomEvent("hass-more-info", {
+            detail: { entityId: id },
+            bubbles: true,
+            composed: true,
+          }),
+        )}
+    >
+      ${src
+        ? html`<img
+            src=${src}
+            alt=""
+            @error=${(e: Event) => ((e.target as HTMLElement).style.visibility = "hidden")}
+            @load=${(e: Event) => ((e.target as HTMLElement).style.visibility = "")}
+          />`
+        : html`<span class="cam-off mono">${this._t.stateOff}</span>`}
+      <span class="cam-label mono"><i class="rec" aria-hidden="true"></i>${name}</span>
+    </button>`;
+  }
+
   private _climateControl(id: string) {
     const h = this.hass!;
     const s = h.states[id];
@@ -2098,19 +2196,23 @@ export class KageHomeCard extends LitElement {
       : undefined;
     const title = coverGroup
       ? this._coverLabel(area, coverGroup)
-      : { lights: t.light, climates: t.heating, media: t.music }[
-          kind as "lights" | "climates" | "media"
-        ];
+      : {
+          lights: t.light,
+          climates: t.heating,
+          media: t.music,
+          switches: allOutlets(h, c.switches?.members ?? []) ? t.sockets : t.switches,
+        }[kind as "lights" | "climates" | "media" | "switches"];
     let rows: TemplateResult[] = [];
-    if (kind === "lights" && c.lights) {
-      rows = c.lights.members.map((id) => {
+    if ((kind === "lights" && c.lights) || (kind === "switches" && c.switches)) {
+      const domain = kind === "lights" ? "light" : "switch";
+      rows = (kind === "lights" ? c.lights! : c.switches!).members.map((id) => {
         const on = isOn(h, id);
         return html`<div class="lrow">
           <span class="lname">${this._name(id, area)}</span>
           <button
             class="pill cut-s ctl ${on ? "on" : ""}"
             aria-pressed=${on ? "true" : "false"}
-            @click=${() => this._call("light", "toggle", { entity_id: id })}
+            @click=${() => this._call(domain, "toggle", { entity_id: id })}
           >
             ${on ? t.stateOn : t.stateOff}
           </button>
@@ -3675,6 +3777,64 @@ export class KageHomeCard extends LitElement {
       }
       .cols.full .sheet-grip.vertical {
         right: 2px;
+      }
+
+      /* --- gniazdka i kamery --- */
+      .tile.sw.on {
+        border-color: rgba(0, 229, 255, 0.55);
+        background: rgba(0, 229, 255, 0.1);
+      }
+      .tile.sw.on .ico {
+        background: var(--kage-accent);
+        color: var(--kage-on-accent);
+      }
+      .tile.cam {
+        position: relative;
+        padding: 0;
+        min-height: 0;
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border: 1px solid rgba(0, 229, 255, 0.35);
+        background: #03050a;
+        cursor: pointer;
+        display: block;
+        text-align: left;
+      }
+      .tile.cam img {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+      }
+      .cam-label {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 4px 8px;
+        background: rgba(5, 6, 10, 0.75);
+        color: var(--kage-ink);
+        font-size: 11px;
+        letter-spacing: 0.06em;
+      }
+      .rec {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--kage-crit);
+        box-shadow: 0 0 6px var(--kage-crit);
+      }
+      .cam-off {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--kage-ink-dim);
+        font-size: 11px;
       }
     `,
   ];
