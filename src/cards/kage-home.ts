@@ -10,6 +10,7 @@ import {
   climateIsOff,
   climatePower,
   controlCount,
+  displayName,
   hasControls,
   coverPosition,
   isDimmable,
@@ -1747,12 +1748,7 @@ export class KageHomeCard extends LitElement {
   }
 
   private _name(id: string, area: AreaModel): string {
-    const raw = this.hass!.states[id]?.attributes.friendly_name;
-    let name = typeof raw === "string" ? raw : id;
-    if (name.toLowerCase().startsWith(area.name.toLowerCase() + " ")) {
-      name = name.slice(area.name.length + 1);
-    }
-    return name;
+    return displayName(this.hass!, id, area.name);
   }
 
   private _roomName: string | null = null;

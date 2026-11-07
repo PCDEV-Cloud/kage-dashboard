@@ -196,6 +196,28 @@ export function allOutlets(hass: HomeAssistant, ids: string[]): boolean {
   return ids.length > 0 && ids.every((id) => hass.states[id]?.attributes.device_class === "outlet");
 }
 
+// Nazwa urządzenia na kaflu: nazwa encji nadana w HA; inaczej friendly_name bez nazwy
+// urządzenia na początku (np. „wc_socket Socket” → „Socket”) i bez nazwy pokoju
+// („WC Mirror” → „Mirror”); gdy nic nie zostaje – entity id.
+export function displayName(hass: HomeAssistant, id: string, areaName: string): string {
+  const entry = hass.entities[id];
+  const strip = (text: string, prefix: string | null | undefined): string => {
+    if (!prefix) return text;
+    const rest = text.toLowerCase().startsWith(prefix.toLowerCase() + " ")
+      ? text.slice(prefix.length + 1).trim()
+      : text;
+    return rest || text;
+  };
+  let name = entry?.name?.trim();
+  if (!name) {
+    const raw = hass.states[id]?.attributes.friendly_name;
+    if (typeof raw !== "string" || !raw.trim()) return id;
+    const device = entry?.device_id ? hass.devices[entry.device_id] : undefined;
+    name = strip(raw.trim(), device?.name_by_user ?? device?.name);
+  }
+  return strip(name, areaName);
+}
+
 export function hasControls(c: RoomControls): boolean {
   return (
     !!c.lights ||

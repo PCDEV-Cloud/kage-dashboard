@@ -6,6 +6,7 @@ import {
   canSetPosition,
   climateIsOff,
   climatePower,
+  displayName,
   coverPosition,
   mediaCaps,
   groupMembers,
@@ -145,6 +146,27 @@ describe("media and climate controls", () => {
       service: "set_hvac_mode",
       data: { entity_id: "climate.b", hvac_mode: "heat" },
     });
+  });
+});
+
+describe("displayName", () => {
+  it("drops the device and room prefix and falls back to the entity id", () => {
+    const hass = makeHass("pl");
+    hass.devices.d_sock = { id: "d_sock", name: "wc_socket" };
+    const add = (id: string, fn: string | undefined, extra = {}) => {
+      hass.entities[id] = { entity_id: id, area_id: "sypialnia", ...extra };
+      hass.states[id] = { entity_id: id, state: "on", attributes: fn ? { friendly_name: fn } : {} };
+    };
+    add("switch.wc_socket", "wc_socket Socket", { device_id: "d_sock" });
+    add("light.mirror", "Sypialnia Mirror");
+    add("light.named", "whatever", { name: "Lampka" });
+    add("switch.bare", undefined);
+    add("switch.only_device", "wc_socket", { device_id: "d_sock" });
+    expect(displayName(hass, "switch.wc_socket", "Sypialnia")).toBe("Socket");
+    expect(displayName(hass, "light.mirror", "Sypialnia")).toBe("Mirror");
+    expect(displayName(hass, "light.named", "Sypialnia")).toBe("Lampka");
+    expect(displayName(hass, "switch.bare", "Sypialnia")).toBe("switch.bare");
+    expect(displayName(hass, "switch.only_device", "Sypialnia")).toBe("wc_socket");
   });
 });
 
